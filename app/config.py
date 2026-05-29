@@ -13,7 +13,35 @@ LOGS_DIR = DATA_DIR / "logs"
 MODELS_DIR = BASE_DIR / "models"
 TEMP_DIR = BASE_DIR / "tmp"
 
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
+SUPPORTED_WHISPER_MODELS = ("tiny", "base", "small", "medium", "large-v3")
+WHISPER_MODEL_INFO = {
+    "tiny": {
+        "label": "tiny",
+        "size_label": "небольшая модель",
+        "description": "самая быстрая, качество ниже",
+    },
+    "base": {
+        "label": "base",
+        "size_label": "небольшая модель",
+        "description": "быстрая",
+    },
+    "small": {
+        "label": "small",
+        "size_label": "примерно несколько сотен МБ",
+        "description": "баланс скорости и качества",
+    },
+    "medium": {
+        "label": "medium",
+        "size_label": "примерно 1.5 GB",
+        "description": "выше качество, медленнее",
+    },
+    "large-v3": {
+        "label": "large-v3",
+        "size_label": "примерно 3.1 GB",
+        "description": "максимальное качество, высокие требования к памяти",
+    },
+}
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small").strip() or "small"
 WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "auto")
 WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "auto")
 WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "ru").strip() or None
@@ -38,8 +66,10 @@ SYSTEM_CHANNELS = int(os.getenv("SYSTEM_AUDIO_CHANNELS", "2"))
 SYSTEM_RECORDING_BLOCKSIZE = int(os.getenv("SYSTEM_AUDIO_RECORDING_BLOCKSIZE", "4096"))
 LEVEL_PROBE_SECONDS = float(os.getenv("AUDIO_LEVEL_PROBE_SECONDS", "0.2"))
 SIGNAL_CHECK_SECONDS = float(os.getenv("AUDIO_SIGNAL_CHECK_SECONDS", "3.0"))
-SILENCE_RMS_THRESHOLD = float(os.getenv("SILENCE_RMS_THRESHOLD", "0.0015"))
-SILENCE_PEAK_THRESHOLD = float(os.getenv("SILENCE_PEAK_THRESHOLD", "0.01"))
+SILENCE_RMS_THRESHOLD = float(os.getenv("SILENCE_RMS_THRESHOLD", "0.0007"))
+SILENCE_PEAK_THRESHOLD = float(os.getenv("SILENCE_PEAK_THRESHOLD", "0.005"))
+LEVEL_RMS_REFERENCE = float(os.getenv("LEVEL_RMS_REFERENCE", "0.02"))
+LEVEL_PEAK_REFERENCE = float(os.getenv("LEVEL_PEAK_REFERENCE", "0.05"))
 
 SUPPORTED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a"}
 

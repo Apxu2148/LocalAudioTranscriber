@@ -158,8 +158,10 @@ class AudioRecorder:
             with self._lock:
                 self._stream = None
                 self._started_at = None
-            logger.exception("Failed to start recording stream")
-            raise RuntimeError(f"Не удалось начать запись с микрофона: {exc}") from exc
+            logger.exception("Failed to start microphone recording stream")
+            raise RuntimeError(
+                f"Не удалось начать запись с микрофона. Проверьте выбранное устройство, разрешения Windows и антивирус: {exc}"
+            ) from exc
 
         if not stream.active:
             self._stop_writer()
@@ -192,7 +194,7 @@ class AudioRecorder:
             stream.stop()
             stream.close()
         except Exception as exc:
-            logger.exception("Failed to stop recording stream")
+            logger.exception("Failed to stop microphone recording stream")
             raise RuntimeError(f"Не удалось остановить запись: {exc}") from exc
         finally:
             with self._lock:
@@ -227,11 +229,11 @@ class AudioRecorder:
         rms = float(np.sqrt(sum_squares / total_samples)) if total_samples else 0.0
         duration_sec = float(total_frames / sample_rate) if sample_rate else 0.0
         file_size_mb = round(output_path.stat().st_size / (1024 * 1024), 3)
-        is_silence = rms < config.SILENCE_RMS_THRESHOLD and peak < config.SILENCE_PEAK_THRESHOLD
+        is_silence = self._is_silence(rms, peak)
         warnings: list[str] = []
 
         if is_silence:
-            warnings.append("Запись похожа на тишину. Проверьте выбранный микрофон или уровень входного сигнала.")
+            warnings.append("Запись похожа на тишину. Проверьте выбранный микрофон и уровень входного сигнала.")
         if dropped_chunks:
             warnings.append(f"Во время записи потеряно аудиоблоков: {dropped_chunks}.")
         if last_status:
@@ -257,7 +259,7 @@ class AudioRecorder:
         write_json_file(output_path.with_suffix(".json"), diagnostics)
 
         logger.info(
-            "Recording stopped: file=%s duration=%.3fs rms=%.6f peak=%.6f silence=%s dropped_chunks=%s",
+            "Microphone recording stopped: file=%s duration=%.3fs rms=%.6f peak=%.6f silence=%s dropped_chunks=%s",
             output_path,
             duration_sec,
             rms,
@@ -272,6 +274,7 @@ class AudioRecorder:
         with self._lock:
             started_at = self._started_at
             elapsed = time.perf_counter() - started_at if started_at is not None else 0.0
+            has_signal = not self._is_silence(self._latest_rms, self._latest_peak)
             no_signal_warning = (
                 self._stream is not None
                 and elapsed >= config.SIGNAL_CHECK_SECONDS
@@ -284,9 +287,12 @@ class AudioRecorder:
 
             return {
                 "recording": self._stream is not None,
+                "available": True,
+                "source_type": "mic",
                 "rms": round(self._latest_rms, 6),
                 "peak": round(self._latest_peak, 6),
-                "level": self._level_percent(self._latest_peak),
+                "level": self._level_percent(self._latest_rms, self._latest_peak),
+                "has_signal": has_signal,
                 "elapsed_sec": round(elapsed, 2),
                 "device_id": self._device_id,
                 "device_name": self._device_name,
@@ -314,18 +320,24 @@ class AudioRecorder:
             )
         except Exception as exc:
             logger.exception("Failed to measure input level")
-            raise RuntimeError(f"Не удалось проверить уровень микрофона: {exc}") from exc
+            raise RuntimeError(
+                f"Не удалось проверить уровень микрофона. Проверьте разрешения Windows, антивирус и выбранное устройство: {exc}"
+            ) from exc
 
         rms, peak = compute_audio_levels(audio)
+        has_signal = not self._is_silence(rms, peak)
         warning = ""
-        if rms < config.SILENCE_RMS_THRESHOLD and peak < config.SILENCE_PEAK_THRESHOLD:
+        if not has_signal:
             warning = "Сигнал микрофона очень низкий или отсутствует."
 
         return {
             "recording": False,
+            "available": True,
+            "source_type": "mic",
             "rms": round(rms, 6),
             "peak": round(peak, 6),
-            "level": self._level_percent(peak),
+            "level": self._level_percent(rms, peak),
+            "has_signal": has_signal,
             "elapsed_sec": 0,
             "device_id": resolved_device_id,
             "device_name": str(device_info.get("name", "Default input")),
@@ -351,9 +363,7 @@ class AudioRecorder:
             self._total_samples += sample_count
             self._sum_squares += sum_squares
             self._peak = max(self._peak, peak)
-            if self._signal_seen_at is None and (
-                rms >= config.SILENCE_RMS_THRESHOLD or peak >= config.SILENCE_PEAK_THRESHOLD
-            ):
+            if self._signal_seen_at is None and not self._is_silence(rms, peak):
                 self._signal_seen_at = time.perf_counter()
             writer_queue = self._writer_queue
 
@@ -462,5 +472,11 @@ class AudioRecorder:
 
         return parsed if parsed >= 0 else None
 
-    def _level_percent(self, peak: float) -> int:
-        return max(0, min(100, int(round(float(peak) * 100))))
+    def _is_silence(self, rms: float, peak: float) -> bool:
+        return rms < config.SILENCE_RMS_THRESHOLD and peak < config.SILENCE_PEAK_THRESHOLD
+
+    def _level_percent(self, rms: float, peak: float) -> int:
+        rms_reference = max(config.LEVEL_RMS_REFERENCE, 0.000001)
+        peak_reference = max(config.LEVEL_PEAK_REFERENCE, 0.000001)
+        scaled = max(float(rms) / rms_reference, float(peak) / peak_reference)
+        return max(0, min(100, int(round(scaled * 100))))

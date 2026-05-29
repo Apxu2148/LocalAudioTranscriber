@@ -1,5 +1,5 @@
-import logging
 import ctypes
+import logging
 import os
 import threading
 import time
@@ -49,7 +49,7 @@ class SystemAudioRecorder:
             ensure_com_initialized()
             default_speaker = sc.default_speaker()
             default_id = default_speaker.id if default_speaker else None
-            devices = []
+            devices: list[dict[str, Any]] = []
 
             for index, speaker in enumerate(sc.all_speakers()):
                 devices.append(
@@ -190,7 +190,7 @@ class SystemAudioRecorder:
         rms = float(np.sqrt(sum_squares / total_samples)) if total_samples else 0.0
         duration_sec = float(total_frames / sample_rate) if sample_rate else 0.0
         file_size_mb = round(output_path.stat().st_size / (1024 * 1024), 3)
-        is_silence = rms < config.SILENCE_RMS_THRESHOLD and peak < config.SILENCE_PEAK_THRESHOLD
+        is_silence = self._is_silence(rms, peak)
         warnings: list[str] = []
 
         if is_silence:
@@ -230,6 +230,7 @@ class SystemAudioRecorder:
         with self._lock:
             started_at = self._started_at
             elapsed = time.perf_counter() - started_at if started_at is not None else 0.0
+            has_signal = not self._is_silence(self._latest_rms, self._latest_peak)
             no_signal_warning = (
                 self._thread is not None
                 and self._thread.is_alive()
@@ -242,9 +243,12 @@ class SystemAudioRecorder:
 
             return {
                 "recording": self._thread is not None and self._thread.is_alive(),
+                "available": True,
+                "source_type": "system",
                 "rms": round(self._latest_rms, 6),
                 "peak": round(self._latest_peak, 6),
-                "level": self._level_percent(self._latest_peak),
+                "level": self._level_percent(self._latest_rms, self._latest_peak),
+                "has_signal": has_signal,
                 "elapsed_sec": round(elapsed, 2),
                 "output_device_id": self._output_device_id,
                 "output_device_name": self._output_device_name,
@@ -275,15 +279,19 @@ class SystemAudioRecorder:
             ) from exc
 
         rms, peak = compute_audio_levels(audio)
+        has_signal = not self._is_silence(rms, peak)
         warning = ""
-        if rms < config.SILENCE_RMS_THRESHOLD and peak < config.SILENCE_PEAK_THRESHOLD:
-            warning = "Системный звук очень низкий или отсутствует. Проверьте, что звук воспроизводится и выбрано правильное output-устройство."
+        if not has_signal:
+            warning = "Системный звук очень низкий или отсутствует. Проверьте воспроизведение и output-устройство."
 
         return {
             "recording": False,
+            "available": True,
+            "source_type": "system",
             "rms": round(rms, 6),
             "peak": round(peak, 6),
-            "level": self._level_percent(peak),
+            "level": self._level_percent(rms, peak),
+            "has_signal": has_signal,
             "elapsed_sec": 0,
             "output_device_id": speaker.id,
             "output_device_name": speaker.name,
@@ -336,9 +344,7 @@ class SystemAudioRecorder:
             self._total_samples += sample_count
             self._sum_squares += sum_squares
             self._peak = max(self._peak, peak)
-            if self._signal_seen_at is None and (
-                rms >= config.SILENCE_RMS_THRESHOLD or peak >= config.SILENCE_PEAK_THRESHOLD
-            ):
+            if self._signal_seen_at is None and not self._is_silence(rms, peak):
                 self._signal_seen_at = time.perf_counter()
 
     def _resolve_speaker(self, output_device_id: str | None):
@@ -359,8 +365,14 @@ class SystemAudioRecorder:
         except Exception as exc:
             raise RuntimeError(f"WASAPI loopback недоступен: {exc}") from exc
 
-    def _level_percent(self, peak: float) -> int:
-        return max(0, min(100, int(round(float(peak) * 100))))
+    def _is_silence(self, rms: float, peak: float) -> bool:
+        return rms < config.SILENCE_RMS_THRESHOLD and peak < config.SILENCE_PEAK_THRESHOLD
+
+    def _level_percent(self, rms: float, peak: float) -> int:
+        rms_reference = max(config.LEVEL_RMS_REFERENCE, 0.000001)
+        peak_reference = max(config.LEVEL_PEAK_REFERENCE, 0.000001)
+        scaled = max(float(rms) / rms_reference, float(peak) / peak_reference)
+        return max(0, min(100, int(round(scaled * 100))))
 
 
 def ensure_com_initialized() -> None:

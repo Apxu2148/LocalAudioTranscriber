@@ -8,91 +8,309 @@
   </head>
   <body>
     <main class="app-shell">
-      <header class="app-header">
-        <div>
-          <h1>Local Audio Transcriber</h1>
-          <p id="systemStatus">Проверка окружения...</p>
-        </div>
-        <span id="modelBadge" class="badge">Whisper</span>
-      </header>
+      <section class="workspace-panel">
+        <header class="app-header">
+          <div>
+            <h1>Local Audio Transcriber</h1>
+            <p id="systemStatus">Проверка окружения...</p>
+          </div>
+          <span id="modelBadge" class="badge" title="Текущая модель Whisper, устройство и compute type.">Whisper small</span>
+        </header>
 
-      <section class="panel">
-        <div class="panel-heading">
-          <h2>Запись аудио с микрофона</h2>
-          <span id="recordingState" class="state">Готово</span>
-        </div>
-        <div class="device-row">
-          <label for="recordingModeSelect">Режим записи</label>
-          <select id="recordingModeSelect">
-            <option value="mic">Микрофон</option>
-            <option value="system">Системный звук</option>
-            <option value="both">Микрофон + системный звук</option>
-          </select>
-          <button id="refreshDevicesButton" type="button">Обновить список устройств</button>
-        </div>
-        <div id="micDeviceRow" class="device-row">
-          <label for="micDeviceSelect">Микрофон</label>
-          <select id="micDeviceSelect"></select>
-        </div>
-        <div id="systemDeviceRow" class="device-row">
-          <label for="outputDeviceSelect">Устройство вывода</label>
-          <select id="outputDeviceSelect"></select>
-        </div>
-        <div id="micLevelBlock" class="level-block">
-          <div class="level-label">
-            <span>Уровень микрофона:</span>
-            <span id="micLevelBlocks">░░░░░░░░░░</span>
+        <section class="workspace-section">
+          <div class="section-heading">
+            <div>
+              <h2>Запись аудио</h2>
+            </div>
+            <span id="recordingState" class="state">Готово к записи</span>
           </div>
-          <div class="level-meter" aria-hidden="true">
-            <div id="micLevelMeterFill"></div>
-          </div>
-          <div class="metrics">
-            <span id="micRmsValue">RMS: 0.000000</span>
-            <span id="micPeakValue">Peak: 0.000000</span>
-          </div>
-          <output id="micLevelWarning" class="output compact"></output>
-        </div>
-        <div id="systemLevelBlock" class="level-block">
-          <div class="level-label">
-            <span>Уровень системного звука:</span>
-            <span id="systemLevelBlocks">░░░░░░░░░░</span>
-          </div>
-          <div class="level-meter" aria-hidden="true">
-            <div id="systemLevelMeterFill"></div>
-          </div>
-          <div class="metrics">
-            <span id="systemRmsValue">RMS: 0.000000</span>
-            <span id="systemPeakValue">Peak: 0.000000</span>
-          </div>
-          <output id="systemLevelWarning" class="output compact"></output>
-        </div>
-        <div class="actions">
-          <button id="startRecordButton" type="button">Начать запись</button>
-          <button id="stopRecordButton" type="button" disabled>Остановить запись</button>
-        </div>
-        <output id="recordingOutput" class="output"></output>
-        <div id="recordingTranscribeActions" class="actions secondary-actions" hidden>
-          <button id="transcribeMicRecordingButton" type="button" hidden>Транскрибировать микрофон</button>
-          <button id="transcribeSystemRecordingButton" type="button" hidden>Транскрибировать системный звук</button>
-          <button id="transcribeAllRecordingsButton" type="button" hidden>Транскрибировать оба файла</button>
-        </div>
-      </section>
 
-      <section class="panel">
-        <div class="panel-heading">
-          <h2>Транскрибация аудиофайла</h2>
-          <span class="state">.wav .mp3 .m4a</span>
-        </div>
-        <form id="transcribeForm" class="upload-form">
-          <input id="audioFileInput" type="file" accept=".wav,.mp3,.m4a,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a" />
-          <button id="transcribeButton" type="submit">Транскрибировать</button>
-        </form>
-        <output id="transcribeOutput" class="output"></output>
-        <output id="benchmarkOutput" class="output compact"></output>
-        <textarea id="transcriptText" readonly spellcheck="false"></textarea>
+          <div class="form-grid">
+            <label class="field" for="recordingModeSelect">
+              <span>Режим записи</span>
+              <select
+                id="recordingModeSelect"
+                title="Режим “оба файла” сохраняет микрофон и системный звук отдельно, без смешивания."
+              >
+                <option value="mic">Микрофон</option>
+                <option value="system">Системный звук</option>
+                <option value="both">Микрофон + системный звук</option>
+              </select>
+            </label>
+
+            <label id="micDeviceRow" class="field" for="micDeviceSelect">
+              <span>Микрофон</span>
+              <select id="micDeviceSelect" title="Микрофон записывает ваш голос и окружающие звуки."></select>
+            </label>
+
+            <label id="systemDeviceRow" class="field" for="outputDeviceSelect">
+              <span>Устройство вывода</span>
+              <select
+                id="outputDeviceSelect"
+                title="Системный звук — это звук, который воспроизводится на компьютере: YouTube, браузер, онлайн-встречи, плееры."
+              ></select>
+            </label>
+
+            <div class="field field-action">
+              <span>&nbsp;</span>
+              <button id="refreshDevicesButton" type="button" title="Обновляет списки микрофонов и output-устройств Windows.">
+                Обновить устройства
+              </button>
+            </div>
+          </div>
+
+          <div class="level-grid">
+            <div
+              id="micLevelBlock"
+              class="level-block"
+              title="Если индикатор уровня не двигается, выбранный микрофон, скорее всего, не слышит звук."
+            >
+              <div class="level-label">
+                <span>Уровень микрофона</span>
+                <span id="micLevelBlocks" class="level-blocks">░░░░░░░░░░</span>
+              </div>
+              <div class="level-meter" aria-hidden="true">
+                <div id="micLevelMeterFill"></div>
+              </div>
+              <div class="metrics">
+                <span id="micRmsValue">RMS: 0.000000</span>
+                <span id="micPeakValue">Peak: 0.000000</span>
+              </div>
+              <output id="micLevelWarning" class="output compact"></output>
+            </div>
+
+            <div
+              id="systemLevelBlock"
+              class="level-block"
+              title="Если индикатор системного звука не двигается, проверьте выбранное output-устройство и громкость Windows."
+            >
+              <div class="level-label">
+                <span>Уровень системного звука</span>
+                <span id="systemLevelBlocks" class="level-blocks">░░░░░░░░░░</span>
+              </div>
+              <div class="level-meter" aria-hidden="true">
+                <div id="systemLevelMeterFill"></div>
+              </div>
+              <div class="metrics">
+                <span id="systemRmsValue">RMS: 0.000000</span>
+                <span id="systemPeakValue">Peak: 0.000000</span>
+              </div>
+              <output id="systemLevelWarning" class="output compact"></output>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="startRecordButton" type="button" title="Начинает запись в выбранном режиме.">
+              Начать запись
+            </button>
+            <button id="stopRecordButton" type="button" disabled title="Останавливает текущую запись и сохраняет WAV-файл.">
+              Остановить запись
+            </button>
+          </div>
+          <output id="recordingOutput" class="output"></output>
+
+        </section>
+
+        <section class="workspace-section">
+          <div class="section-heading">
+            <div>
+              <h2>Транскрибация аудиофайла</h2>
+              <p class="section-note">Выберите модель один раз, затем транскрибируйте последнюю запись или отдельный файл.</p>
+            </div>
+          </div>
+
+          <div class="model-row">
+            <label class="field" for="whisperModelSelect">
+              <span>Модель Whisper</span>
+              <select
+                id="whisperModelSelect"
+                title="Чем больше модель, тем выше потенциальное качество, но тем медленнее транскрибация и выше требования к памяти."
+              >
+                <option value="tiny">tiny — самая быстрая</option>
+                <option value="base">base — быстрая</option>
+                <option value="small" selected>small — баланс</option>
+                <option value="medium">medium — выше качество</option>
+                <option value="large-v3">large-v3 — максимальное качество</option>
+              </select>
+              <span id="modelAvailabilityOutput" class="hint">Проверяю локальную доступность модели...</span>
+            </label>
+            <output id="modelDownloadWarning" class="model-warning"></output>
+          </div>
+
+          <div class="transcription-grid">
+            <div id="recordingTranscribeActions" class="transcription-column">
+              <div class="subsection-heading">
+                <h3>Транскрибация последней записи</h3>
+                <p>Эти кнопки используют файлы, созданные при последней записи.</p>
+              </div>
+              <div class="actions secondary-actions">
+                <button
+                  id="transcribeMicRecordingButton"
+                  type="button"
+                  disabled
+                  title="Транскрибирует WAV-файл микрофона из последней записи."
+                >
+                  Транскрибировать микрофон
+                </button>
+                <button
+                  id="transcribeSystemRecordingButton"
+                  type="button"
+                  disabled
+                  title="Транскрибирует WAV-файл системного звука из последней записи."
+                >
+                  Транскрибировать системный звук
+                </button>
+                <button
+                  id="transcribeAllRecordingsButton"
+                  type="button"
+                  disabled
+                  title="Последовательно транскрибирует оба WAV-файла последней записи."
+                >
+                  Транскрибировать оба файла
+                </button>
+              </div>
+            </div>
+
+            <div class="transcription-column">
+              <div class="subsection-heading">
+                <h3>Транскрибация выбранного файла</h3>
+                <p>Поддерживаемые форматы аудиофайлов: .wav, .mp3, .m4a</p>
+              </div>
+              <form id="transcribeForm" class="file-transcribe-form">
+                <label class="field file-field" for="audioFileInput">
+                  <span>Файл</span>
+                  <input
+                    id="audioFileInput"
+                    type="file"
+                    accept=".wav,.mp3,.m4a,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a"
+                    title="Выберите локальный аудиофайл .wav, .mp3 или .m4a."
+                  />
+                </label>
+                <button id="transcribeButton" type="submit" title="Транскрибирует выбранный файл выбранной моделью Whisper.">
+                  Транскрибировать выбранный файл
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <div id="runtimeDetails" class="runtime-grid">
+            <div title="Модель Whisper, выбранная для транскрибации.">
+              <span>Модель</span>
+              <strong id="runtimeModel">small</strong>
+            </div>
+            <div title="Устройство, на котором реально выполнялась транскрибация: cuda или cpu.">
+              <span>Устройство</span>
+              <strong id="runtimeDevice">auto</strong>
+            </div>
+            <div title="Compute type faster-whisper: например float16, int8_float16 или int8.">
+              <span>Compute type</span>
+              <strong id="runtimeCompute">auto</strong>
+            </div>
+            <div title="Отношение длительности аудио ко времени транскрибации.">
+              <span>Скорость</span>
+              <strong id="runtimeSpeed">н/д</strong>
+            </div>
+          </div>
+
+          <output id="transcribeOutput" class="output"></output>
+          <details id="transcribeTechnicalDetails" class="technical-details" hidden>
+            <summary>Технические подробности</summary>
+            <pre id="transcribeTechnicalText"></pre>
+          </details>
+          <output id="benchmarkOutput" class="output compact"></output>
+          <textarea id="transcriptText" readonly spellcheck="false" aria-label="Результат транскрибации"></textarea>
+        </section>
+
+        <section class="workspace-section">
+          <div class="section-heading">
+            <div>
+              <h2>Файлы</h2>
+            </div>
+          </div>
+
+          <div class="storage-grid">
+            <div class="storage-block">
+              <h3>recordings</h3>
+              <p>Аудиозаписи сохраняются в:</p>
+              <code id="recordingsPath">C:\Python\LocalAudioTranscriber\data\recordings</code>
+              <button
+                id="openRecordingsButton"
+                type="button"
+                title="Открывает папку data\\recordings в Windows Explorer."
+              >
+                Открыть папку recordings
+              </button>
+              <h4>Последние 5 файлов</h4>
+              <ul id="recordingsFileList" class="file-list"></ul>
+            </div>
+
+            <div class="storage-block">
+              <h3>transcripts</h3>
+              <p>Транскрипты сохраняются в:</p>
+              <code id="transcriptsPath">C:\Python\LocalAudioTranscriber\data\transcripts</code>
+              <button
+                id="openTranscriptsButton"
+                type="button"
+                title="Открывает папку data\\transcripts в Windows Explorer."
+              >
+                Открыть папку transcripts
+              </button>
+              <h4>Последние 5 файлов</h4>
+              <ul id="transcriptsFileList" class="file-list"></ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="workspace-section">
+          <details class="help-block">
+            <summary>Помощь: если звук не записывается или транскрибация не начинается</summary>
+
+            <h3>Если микрофон не работает</h3>
+            <ol>
+              <li>Откройте Параметры Windows → Конфиденциальность и безопасность → Микрофон.</li>
+              <li>Включите доступ к микрофону.</li>
+              <li>Включите доступ к микрофону для классических приложений.</li>
+              <li>Разрешите доступ к микрофону для python.exe, powershell.exe или cmd.exe в антивирусе.</li>
+              <li>После изменения разрешений перезапустите приложение.</li>
+              <li>Выберите правильный микрофон в списке устройств.</li>
+              <li>Проверьте, двигается ли индикатор уровня микрофона.</li>
+            </ol>
+
+            <h3>Если системный звук не записывается</h3>
+            <ol>
+              <li>Убедитесь, что звук реально воспроизводится в Windows.</li>
+              <li>Выберите output-устройство, через которое идет звук: динамики, наушники, монитор, Bluetooth-устройство.</li>
+              <li>Если индикатор системного звука не двигается, попробуйте другое output-устройство.</li>
+              <li>Проверьте громкость Windows и громкость приложения-источника.</li>
+              <li>На корпоративных ноутбуках системный звук может блокироваться политиками безопасности.</li>
+            </ol>
+
+            <h3>Если антивирус показывает предупреждение</h3>
+            <ol>
+              <li>Разрешите приложению доступ к микрофону.</li>
+              <li>Разрешите python.exe, powershell.exe или cmd.exe.</li>
+              <li>Если доступ был заблокирован, перезапустите приложение.</li>
+              <li>Иногда после блокировки требуется перезагрузка компьютера.</li>
+            </ol>
+
+            <h3>Если транскрибация долго не начинается</h3>
+            <ol>
+              <li>При первом запуске модель Whisper может скачиваться несколько минут.</li>
+              <li>Проверьте интернет.</li>
+              <li>Проверьте доступ к Hugging Face, если модель скачивается впервые.</li>
+              <li>На CPU транскрибация может быть медленнее, чем на GPU.</li>
+              <li>Если выбрана тяжелая модель medium или large-v3, попробуйте small.</li>
+              <li>Проверьте логи в data\logs\app.log.</li>
+            </ol>
+
+            <h3>Если нет NVIDIA GPU</h3>
+            <p>Это не ошибка. Приложение работает на CPU. Для CPU-установки используйте requirements-cpu.txt. Для GPU-ускорения нужна NVIDIA GPU и установка requirements-gpu.txt.</p>
+          </details>
+        </section>
       </section>
     </main>
 
+    <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
     <script src="/static/app.js"></script>
   </body>
 </html>

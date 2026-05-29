@@ -5,7 +5,7 @@ cd /d "%~dp0"
 
 if not exist ".venv\Scripts\activate.bat" (
     echo Virtual environment not found: .venv
-    echo Create it with: python -m venv .venv
+    echo Create it with: py -3.11 -m venv .venv
     pause
     exit /b 1
 )
