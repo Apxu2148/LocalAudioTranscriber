@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Local Audio Transcriber</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <h1>Local Audio Transcriber</h1>
+          <p id="systemStatus">Проверка окружения...</p>
+        </div>
+        <span id="modelBadge" class="badge">Whisper</span>
+      </header>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <h2>Запись аудио с микрофона</h2>
+          <span id="recordingState" class="state">Готово</span>
+        </div>
+        <div class="device-row">
+          <label for="recordingModeSelect">Режим записи</label>
+          <select id="recordingModeSelect">
+            <option value="mic">Микрофон</option>
+            <option value="system">Системный звук</option>
+            <option value="both">Микрофон + системный звук</option>
+          </select>
+          <button id="refreshDevicesButton" type="button">Обновить список устройств</button>
+        </div>
+        <div id="micDeviceRow" class="device-row">
+          <label for="micDeviceSelect">Микрофон</label>
+          <select id="micDeviceSelect"></select>
+        </div>
+        <div id="systemDeviceRow" class="device-row">
+          <label for="outputDeviceSelect">Устройство вывода</label>
+          <select id="outputDeviceSelect"></select>
+        </div>
+        <div id="micLevelBlock" class="level-block">
+          <div class="level-label">
+            <span>Уровень микрофона:</span>
+            <span id="micLevelBlocks">░░░░░░░░░░</span>
+          </div>
+          <div class="level-meter" aria-hidden="true">
+            <div id="micLevelMeterFill"></div>
+          </div>
+          <div class="metrics">
+            <span id="micRmsValue">RMS: 0.000000</span>
+            <span id="micPeakValue">Peak: 0.000000</span>
+          </div>
+          <output id="micLevelWarning" class="output compact"></output>
+        </div>
+        <div id="systemLevelBlock" class="level-block">
+          <div class="level-label">
+            <span>Уровень системного звука:</span>
+            <span id="systemLevelBlocks">░░░░░░░░░░</span>
+          </div>
+          <div class="level-meter" aria-hidden="true">
+            <div id="systemLevelMeterFill"></div>
+          </div>
+          <div class="metrics">
+            <span id="systemRmsValue">RMS: 0.000000</span>
+            <span id="systemPeakValue">Peak: 0.000000</span>
+          </div>
+          <output id="systemLevelWarning" class="output compact"></output>
+        </div>
+        <div class="actions">
+          <button id="startRecordButton" type="button">Начать запись</button>
+          <button id="stopRecordButton" type="button" disabled>Остановить запись</button>
+        </div>
+        <output id="recordingOutput" class="output"></output>
+        <div id="recordingTranscribeActions" class="actions secondary-actions" hidden>
+          <button id="transcribeMicRecordingButton" type="button" hidden>Транскрибировать микрофон</button>
+          <button id="transcribeSystemRecordingButton" type="button" hidden>Транскрибировать системный звук</button>
+          <button id="transcribeAllRecordingsButton" type="button" hidden>Транскрибировать оба файла</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <h2>Транскрибация аудиофайла</h2>
+          <span class="state">.wav .mp3 .m4a</span>
+        </div>
+        <form id="transcribeForm" class="upload-form">
+          <input id="audioFileInput" type="file" accept=".wav,.mp3,.m4a,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a" />
+          <button id="transcribeButton" type="submit">Транскрибировать</button>
+        </form>
+        <output id="transcribeOutput" class="output"></output>
+        <output id="benchmarkOutput" class="output compact"></output>
+        <textarea id="transcriptText" readonly spellcheck="false"></textarea>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
