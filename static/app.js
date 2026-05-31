@@ -48,13 +48,38 @@ const transcriptsFileList = document.querySelector("#transcriptsFileList");
 const openRecordingsButton = document.querySelector("#openRecordingsButton");
 const openTranscriptsButton = document.querySelector("#openTranscriptsButton");
 const toastRegion = document.querySelector("#toastRegion");
+const appVersion = document.querySelector("#appVersion");
+const recordingTimer = document.querySelector("#recordingTimer");
+const queueAddForm = document.querySelector("#queueAddForm");
+const queueFileInput = document.querySelector("#queueFileInput");
+const queueAddButton = document.querySelector("#queueAddButton");
+const queueStartButton = document.querySelector("#queueStartButton");
+const queueStopButton = document.querySelector("#queueStopButton");
+const queueClearButton = document.querySelector("#queueClearButton");
+const queueRetryButton = document.querySelector("#queueRetryButton");
+const queueTotal = document.querySelector("#queueTotal");
+const queueCompleted = document.querySelector("#queueCompleted");
+const queueFailed = document.querySelector("#queueFailed");
+const queuePending = document.querySelector("#queuePending");
+const queueCurrent = document.querySelector("#queueCurrent");
+const queueElapsed = document.querySelector("#queueElapsed");
+const queueEta = document.querySelector("#queueEta");
+const queueProgress = document.querySelector("#queueProgress");
+const queueProgressText = document.querySelector("#queueProgressText");
+const queueOutput = document.querySelector("#queueOutput");
+const queueList = document.querySelector("#queueList");
 
 let micLevelPollInFlight = false;
 let systemLevelPollInFlight = false;
 let lastRecordings = [];
 let isTranscribing = false;
 let localTranscriptionActive = false;
+let isRecording = false;
 let modelStatusByName = new Map();
+let recordingStartedAtMs = null;
+let lastRecordingDurationSec = null;
+let queueActive = false;
+let previousQueueStatus = "empty";
 
 class ApiError extends Error {
   constructor(message, technicalDetails = "") {
@@ -115,21 +140,27 @@ function hasSelectableDevice(select) {
   return Array.from(select.options).some((option) => !option.disabled && option.value !== "");
 }
 
-function setRecordingUi(isRecording) {
-  startRecordButton.disabled = isRecording || isTranscribing;
-  stopRecordButton.disabled = !isRecording;
-  recordingModeSelect.disabled = isRecording;
-  micDeviceSelect.disabled = isRecording;
-  outputDeviceSelect.disabled = isRecording;
-  refreshDevicesButton.disabled = isRecording;
+function setRecordingUi(recording) {
+  isRecording = recording;
+  startRecordButton.disabled = recording || isTranscribing || queueActive;
+  stopRecordButton.disabled = !recording;
+  recordingModeSelect.disabled = recording;
+  micDeviceSelect.disabled = recording;
+  outputDeviceSelect.disabled = recording;
+  refreshDevicesButton.disabled = recording;
 
   if (!isTranscribing) {
-    setAppState(isRecording ? "Идет запись" : "Готово к записи", isRecording ? "active" : "idle");
+    setAppState(recording ? "Идет запись" : "Готово к записи", recording ? "active" : "idle");
   }
 }
 
 async function requestJson(url, options = {}) {
-  const response = await fetch(url, options);
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch (error) {
+    throw new ApiError("Не удалось получить данные от локального сервера. Обновите страницу Ctrl+F5 или перезапустите run.bat.");
+  }
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
@@ -139,6 +170,39 @@ async function requestJson(url, options = {}) {
   }
 
   return payload;
+}
+
+function formatElapsed(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  return [hours, minutes, remainder].map((value) => String(value).padStart(2, "0")).join(":");
+}
+
+function updateRecordingTimerUi() {
+  if (recordingStartedAtMs !== null) {
+    const elapsed = (Date.now() - recordingStartedAtMs) / 1000;
+    recordingTimer.textContent = `Запись идет: ${formatElapsed(elapsed)}`;
+    return;
+  }
+
+  recordingTimer.textContent = lastRecordingDurationSec === null
+    ? "Последняя запись: --:--:--"
+    : `Последняя запись: ${formatElapsed(lastRecordingDurationSec)}`;
+}
+
+function syncRecordingTimer(status) {
+  if (status.recording) {
+    const elapsed = Number(status.recording_elapsed_sec || 0);
+    recordingStartedAtMs = Date.now() - elapsed * 1000;
+  } else {
+    recordingStartedAtMs = null;
+    if (status.last_recording_duration_sec !== null && status.last_recording_duration_sec !== undefined) {
+      lastRecordingDurationSec = Number(status.last_recording_duration_sec);
+    }
+  }
+  updateRecordingTimerUi();
 }
 
 function updateLevel(level, target, kind) {
@@ -304,8 +368,11 @@ async function refreshStatus() {
       applyModelStatuses(status.whisper_model_status);
     }
 
+    appVersion.textContent = `Версия: ${status.app_version || "неизвестна"}`;
+    syncRecordingTimer(status);
     isTranscribing = localTranscriptionActive || Boolean(transcription.in_progress);
     setRecordingUi(Boolean(status.recording));
+    updateRecordingTranscribeActions(lastRecordings);
 
     if (isTranscribing) {
       setAppState("Транскрибация выполняется", "active");
@@ -451,9 +518,9 @@ function updateRecordingTranscribeActions(recordings) {
   const micRecording = lastRecordings.find((item) => item.source_type === "mic");
   const systemRecording = lastRecordings.find((item) => item.source_type === "system");
   recordingTranscribeActions.dataset.empty = String(lastRecordings.length === 0);
-  transcribeMicRecordingButton.disabled = !micRecording || isTranscribing;
-  transcribeSystemRecordingButton.disabled = !systemRecording || isTranscribing;
-  transcribeAllRecordingsButton.disabled = lastRecordings.length < 2 || isTranscribing;
+  transcribeMicRecordingButton.disabled = !micRecording || isTranscribing || queueActive;
+  transcribeSystemRecordingButton.disabled = !systemRecording || isTranscribing || queueActive;
+  transcribeAllRecordingsButton.disabled = lastRecordings.length < 2 || isTranscribing || queueActive;
 }
 
 async function transcribeRecordedDiagnostics(diagnostics) {
@@ -538,7 +605,7 @@ async function runTranscription(callback) {
   } finally {
     localTranscriptionActive = false;
     isTranscribing = false;
-    transcribeButton.disabled = false;
+    transcribeButton.disabled = queueActive;
     updateRecordingTranscribeActions(lastRecordings);
     await refreshStatus();
   }
@@ -678,6 +745,101 @@ function warnAboutSelectedModelDownload() {
   }
 }
 
+const queueStatusLabels = {
+  pending: "Ожидает",
+  analyzing: "Анализируется",
+  extracting_audio: "Извлекается аудио",
+  transcribing: "Транскрибируется",
+  completed: "Готово",
+  error: "Ошибка",
+  cancelled: "Отменено",
+};
+
+function renderQueue(status) {
+  queueActive = status.status === "running";
+  const total = Number(status.total_items || 0);
+  const completed = Number(status.completed_items || 0);
+  const failed = Number(status.failed_items || 0);
+  const pending = Number(status.pending_items || 0);
+  const progress = Number(status.progress_percent || 0);
+
+  queueTotal.textContent = String(total);
+  queueCompleted.textContent = String(completed);
+  queueFailed.textContent = String(failed);
+  queuePending.textContent = String(pending);
+  queueCurrent.textContent = status.current_file || "нет";
+  queueElapsed.textContent = formatElapsed(status.elapsed_sec);
+  queueEta.textContent = status.eta_sec === null || status.eta_sec === undefined
+    ? (status.eta_message || "Оценка появится после обработки первых файлов.")
+    : formatElapsed(status.eta_sec);
+  queueProgress.value = progress;
+  queueProgressText.textContent = `Очередь выполнена на ${Math.round(progress)}%`;
+
+  queueList.innerHTML = "";
+  if (!status.items?.length) {
+    const item = document.createElement("li");
+    item.innerHTML = "<span>Очередь пока пуста.</span>";
+    queueList.append(item);
+  } else {
+    for (const queueItem of status.items) {
+      const item = document.createElement("li");
+      const name = document.createElement("span");
+      const state = document.createElement("small");
+      name.textContent = `${queueItem.index}. ${queueItem.source_filename}`;
+      state.textContent = queueStatusLabels[queueItem.status] || queueItem.status;
+      state.dataset.type = queueItem.status;
+      item.title = queueItem.error_message || queueItem.source_path;
+      item.append(name, state);
+      queueList.append(item);
+    }
+  }
+
+  queueAddButton.disabled = queueActive;
+  queueFileInput.disabled = queueActive;
+  queueStartButton.disabled = queueActive || pending === 0;
+  queueStopButton.disabled = !queueActive || Boolean(status.stop_after_current);
+  queueClearButton.disabled = queueActive || total === 0;
+  queueRetryButton.disabled = queueActive || failed === 0;
+  whisperModelSelect.disabled = queueActive;
+  transcribeButton.disabled = queueActive || isTranscribing;
+  setRecordingUi(isRecording);
+  updateRecordingTranscribeActions(lastRecordings);
+
+  if (previousQueueStatus === "running" && status.status === "completed") {
+    const message = `Очередь завершена. Готово: ${completed}, ошибок: ${failed}.`;
+    setOutput(queueOutput, message, failed ? "warning" : "success");
+    showToast(message, failed ? "warning" : "success");
+    refreshStorage();
+  } else if (previousQueueStatus === "running" && status.status === "cancelled") {
+    setOutput(queueOutput, "Очередь остановлена после текущей задачи.", "warning");
+    showToast("Очередь остановлена после текущей задачи.", "warning");
+  }
+
+  previousQueueStatus = status.status;
+}
+
+async function refreshQueueStatus() {
+  try {
+    renderQueue(await requestJson("/api/queue/status"));
+  } catch (error) {
+    setOutput(queueOutput, error.message, "error");
+  }
+}
+
+async function postQueueAction(url, successMessage) {
+  try {
+    const status = await requestJson(url, { method: "POST" });
+    renderQueue(status);
+    if (successMessage) {
+      setOutput(queueOutput, successMessage, "success");
+      showToast(successMessage, "success");
+    }
+  } catch (error) {
+    setOutput(queueOutput, error.message, "error");
+    showToast(error.message, "error");
+  }
+}
+
 startRecordButton.addEventListener("click", async () => {
   setOutput(recordingOutput, "Запускаю запись...");
   updateRecordingTranscribeActions([]);
@@ -694,6 +856,8 @@ startRecordButton.addEventListener("click", async () => {
       }),
     });
     setRecordingUi(true);
+    recordingStartedAtMs = Date.now();
+    updateRecordingTimerUi();
     setAppState("Идет запись", "active");
     showToast("Запись началась", "success");
     const paths = result.recordings.map((item) => `${item.source_type}: ${item.file_path}`).join("\n");
@@ -716,6 +880,9 @@ stopRecordButton.addEventListener("click", async () => {
     setAppState("Запись завершена", "success");
     showToast("Запись завершена", "success");
     const diagnosticsList = result.diagnostics_list || [result.diagnostics];
+    recordingStartedAtMs = null;
+    lastRecordingDurationSec = Number(result.duration_sec || Math.max(...diagnosticsList.map((item) => item.duration_sec || 0)));
+    updateRecordingTimerUi();
     const hasWarnings = diagnosticsList.some((item) => item?.warnings?.length) || Boolean(result.errors?.length);
     setOutput(recordingOutput, formatAllDiagnostics(diagnosticsList, result.errors), hasWarnings ? "warning" : "success");
     updateRecordingTranscribeActions(diagnosticsList);
@@ -745,6 +912,50 @@ transcribeSystemRecordingButton.addEventListener("click", () => transcribeRecord
 transcribeAllRecordingsButton.addEventListener("click", transcribeAllRecordings);
 openRecordingsButton.addEventListener("click", () => openFolder("recordings"));
 openTranscriptsButton.addEventListener("click", () => openFolder("transcripts"));
+queueAddForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const files = Array.from(queueFileInput.files || []);
+  if (!files.length) {
+    setOutput(queueOutput, "Выберите хотя бы один файл для очереди.", "error");
+    return;
+  }
+
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append("files", file);
+  }
+  queueAddButton.disabled = true;
+  setOutput(queueOutput, "Добавляю файлы в очередь...");
+  try {
+    renderQueue(await requestJson("/api/queue/add-files", { method: "POST", body: formData }));
+    queueFileInput.value = "";
+    setOutput(queueOutput, `Файлы добавлены в очередь: ${files.length}.`, "success");
+    showToast("Файлы добавлены в очередь.", "success");
+  } catch (error) {
+    setOutput(queueOutput, error.message, "error");
+    showToast(error.message, "error");
+  } finally {
+    queueAddButton.disabled = queueActive;
+  }
+});
+queueStartButton.addEventListener("click", async () => {
+  warnAboutSelectedModelDownload();
+  try {
+    renderQueue(await requestJson("/api/queue/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: selectedModel() }),
+    }));
+    setOutput(queueOutput, "Очередь запущена.");
+    showToast("Очередь запущена.", "info");
+  } catch (error) {
+    setOutput(queueOutput, error.message, "error");
+    showToast(error.message, "error");
+  }
+});
+queueStopButton.addEventListener("click", () => postQueueAction("/api/queue/stop-after-current", "Очередь остановится после текущей задачи."));
+queueClearButton.addEventListener("click", () => postQueueAction("/api/queue/clear", "Очередь очищена."));
+queueRetryButton.addEventListener("click", () => postQueueAction("/api/queue/retry-errors", "Ошибочные задачи возвращены в ожидание."));
 
 transcribeForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -784,8 +995,10 @@ async function boot() {
   await refreshStatus();
   await refreshModelStatuses();
   await refreshStorage();
+  await refreshQueueStatus();
   await refreshMicLevel();
   await refreshSystemLevel();
+  window.LocalAudioTranscriberTour?.maybePrompt();
 }
 
 boot();
@@ -793,3 +1006,5 @@ setInterval(refreshMicLevel, 500);
 setInterval(refreshSystemLevel, 500);
 setInterval(refreshStatus, 5000);
 setInterval(refreshStorage, 10000);
+setInterval(updateRecordingTimerUi, 1000);
+setInterval(refreshQueueStatus, 1000);

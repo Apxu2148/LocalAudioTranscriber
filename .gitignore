@@ -6,11 +6,13 @@ data/recordings/*
 data/uploads/*
 data/transcripts/*
 data/logs/*
+data/jobs/*
 
 !data/recordings/.gitkeep
 !data/uploads/.gitkeep
 !data/transcripts/.gitkeep
 !data/logs/.gitkeep
+!data/jobs/.gitkeep
 
 models/
 tmp/
@@ -24,5 +26,6 @@ tmp/
 *.wav
 *.mp3
 *.m4a
+*.mp4
 *.flac
 *.ogg

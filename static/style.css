@@ -108,6 +108,18 @@ h4 {
   margin-top: 7px;
 }
 
+.app-version,
+.recording-timer {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.recording-timer {
+  margin-top: 10px;
+  font-weight: 700;
+}
+
 .badge,
 .state {
   flex: 0 0 auto;
@@ -358,6 +370,84 @@ summary:focus-visible {
   margin-top: 12px;
 }
 
+.queue-add-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.queue-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.queue-progress-grid > div {
+  min-height: 66px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--surface-soft);
+}
+
+.queue-progress-grid span,
+.queue-progress-label span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.queue-progress-grid strong {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.queue-progress-label {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.queue-progress-label progress {
+  width: 100%;
+  height: 18px;
+}
+
+.queue-list {
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+}
+
+.queue-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--surface-soft);
+}
+
+.queue-list small {
+  color: var(--muted);
+}
+
+.queue-list [data-type="error"] {
+  color: var(--danger);
+}
+
+.queue-list [data-type="completed"] {
+  color: var(--success);
+}
+
 .output {
   display: block;
   min-height: 24px;
@@ -568,6 +658,68 @@ textarea {
   transform: translateY(-4px);
 }
 
+.tour-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(24, 32, 42, 0.58);
+}
+
+.tour-card,
+.tour-prompt {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 1003;
+  width: min(560px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+  box-shadow: 0 18px 48px rgba(24, 32, 42, 0.28);
+}
+
+.tour-prompt {
+  top: 50%;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+}
+
+.tour-card small {
+  color: var(--muted);
+}
+
+.tour-card h2,
+.tour-prompt h2 {
+  margin-top: 6px;
+}
+
+.tour-card p,
+.tour-prompt p {
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.tour-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.tour-actions button[data-secondary="true"] {
+  border-color: var(--line);
+  background: #ffffff;
+  color: var(--text);
+}
+
+.tour-actions button[data-secondary="true"]:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--surface-soft);
+}
+
 @media (max-width: 820px) {
   .app-shell {
     width: min(100% - 20px, 1120px);
@@ -599,7 +751,9 @@ textarea {
   .level-grid,
   .transcription-grid,
   .runtime-grid,
-  .storage-grid {
+  .storage-grid,
+  .queue-add-form,
+  .queue-progress-grid {
     grid-template-columns: 1fr;
   }
 

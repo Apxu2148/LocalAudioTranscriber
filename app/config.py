@@ -1,8 +1,10 @@
 import os
+from datetime import datetime
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+APP_VERSION = os.getenv("APP_VERSION", f"local-dev-{datetime.now():%Y%m%d}")
 APP_DIR = BASE_DIR / "app"
 STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = BASE_DIR / "data"
@@ -10,6 +12,7 @@ RECORDINGS_DIR = DATA_DIR / "recordings"
 UPLOADS_DIR = DATA_DIR / "uploads"
 TRANSCRIPTS_DIR = DATA_DIR / "transcripts"
 LOGS_DIR = DATA_DIR / "logs"
+JOBS_DIR = DATA_DIR / "jobs"
 MODELS_DIR = BASE_DIR / "models"
 TEMP_DIR = BASE_DIR / "tmp"
 
@@ -71,7 +74,7 @@ SILENCE_PEAK_THRESHOLD = float(os.getenv("SILENCE_PEAK_THRESHOLD", "0.005"))
 LEVEL_RMS_REFERENCE = float(os.getenv("LEVEL_RMS_REFERENCE", "0.02"))
 LEVEL_PEAK_REFERENCE = float(os.getenv("LEVEL_PEAK_REFERENCE", "0.05"))
 
-SUPPORTED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a"}
+SUPPORTED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".mp4"}
 
 
 def ensure_directories() -> None:
@@ -81,6 +84,7 @@ def ensure_directories() -> None:
         UPLOADS_DIR,
         TRANSCRIPTS_DIR,
         LOGS_DIR,
+        JOBS_DIR,
         MODELS_DIR,
         TEMP_DIR,
     ):

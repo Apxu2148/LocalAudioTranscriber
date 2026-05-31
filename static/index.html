@@ -13,6 +13,7 @@
           <div>
             <h1>Local Audio Transcriber</h1>
             <p id="systemStatus">Проверка окружения...</p>
+            <p id="appVersion" class="app-version">Версия: загрузка...</p>
           </div>
           <span id="modelBadge" class="badge" title="Текущая модель Whisper, устройство и compute type.">Whisper small</span>
         </header>
@@ -108,6 +109,7 @@
             </button>
           </div>
           <output id="recordingOutput" class="output"></output>
+          <p id="recordingTimer" class="recording-timer">Последняя запись: --:--:--</p>
 
         </section>
 
@@ -174,7 +176,7 @@
             <div class="transcription-column">
               <div class="subsection-heading">
                 <h3>Транскрибация выбранного файла</h3>
-                <p>Поддерживаемые форматы аудиофайлов: .wav, .mp3, .m4a</p>
+                <p id="supportedFormats" title="Для .mp4 программа извлекает и транскрибирует только аудиодорожку. Видеоряд не анализируется.">Поддерживаемые форматы аудио/видео: .wav, .mp3, .m4a, .mp4</p>
               </div>
               <form id="transcribeForm" class="file-transcribe-form">
                 <label class="field file-field" for="audioFileInput">
@@ -182,8 +184,8 @@
                   <input
                     id="audioFileInput"
                     type="file"
-                    accept=".wav,.mp3,.m4a,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a"
-                    title="Выберите локальный аудиофайл .wav, .mp3 или .m4a."
+                    accept=".wav,.mp3,.m4a,.mp4,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,video/mp4"
+                    title="Выберите локальный аудио- или видеофайл .wav, .mp3, .m4a или .mp4. Для .mp4 транскрибируется только аудиодорожка."
                   />
                 </label>
                 <button id="transcribeButton" type="submit" title="Транскрибирует выбранный файл выбранной моделью Whisper.">
@@ -219,6 +221,52 @@
           </details>
           <output id="benchmarkOutput" class="output compact"></output>
           <textarea id="transcriptText" readonly spellcheck="false" aria-label="Результат транскрибации"></textarea>
+        </section>
+
+        <section id="queueSection" class="workspace-section">
+          <div class="section-heading">
+            <div>
+              <h2>Очередь локальных файлов</h2>
+              <p class="section-note">Файлы обрабатываются последовательно. Поддерживаются .wav, .mp3, .m4a и .mp4.</p>
+            </div>
+          </div>
+
+          <form id="queueAddForm" class="queue-add-form">
+            <label class="field file-field" for="queueFileInput">
+              <span>Аудио- и видеофайлы</span>
+              <input
+                id="queueFileInput"
+                type="file"
+                multiple
+                accept=".wav,.mp3,.m4a,.mp4,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,video/mp4"
+                title="Выберите несколько локальных файлов. Для .mp4 транскрибируется только аудиодорожка."
+              />
+            </label>
+            <button id="queueAddButton" type="submit">Добавить файлы в очередь</button>
+          </form>
+
+          <div class="actions">
+            <button id="queueStartButton" type="button">Запустить очередь</button>
+            <button id="queueStopButton" type="button" disabled>Остановить после текущей задачи</button>
+            <button id="queueClearButton" type="button">Очистить очередь</button>
+            <button id="queueRetryButton" type="button">Повторить ошибочные задачи</button>
+          </div>
+
+          <div class="queue-progress-grid">
+            <div><span>Всего задач</span><strong id="queueTotal">0</strong></div>
+            <div><span>Готово</span><strong id="queueCompleted">0</strong></div>
+            <div><span>Ошибок</span><strong id="queueFailed">0</strong></div>
+            <div><span>Ожидает</span><strong id="queuePending">0</strong></div>
+            <div><span>Выполняется</span><strong id="queueCurrent">нет</strong></div>
+            <div><span>Прошло времени</span><strong id="queueElapsed">00:00:00</strong></div>
+            <div><span>Примерно осталось</span><strong id="queueEta">Оценка появится после обработки первых файлов.</strong></div>
+          </div>
+          <label class="queue-progress-label" for="queueProgress">
+            <span id="queueProgressText">Очередь выполнена на 0%</span>
+            <progress id="queueProgress" max="100" value="0"></progress>
+          </label>
+          <output id="queueOutput" class="output"></output>
+          <ul id="queueList" class="queue-list"></ul>
         </section>
 
         <section class="workspace-section">
@@ -305,12 +353,19 @@
 
             <h3>Если нет NVIDIA GPU</h3>
             <p>Это не ошибка. Приложение работает на CPU. Для CPU-установки используйте requirements-cpu.txt. Для GPU-ускорения нужна NVIDIA GPU и установка requirements-gpu.txt.</p>
+
+            <h3 id="legalUsage">Правовое и этичное использование</h3>
+            <p>Используйте приложение только для аудио, видео и файлов, к которым у вас есть законный доступ.</p>
+            <p>Не используйте приложение для скрытой записи чужих разговоров, перехвата сообщений, обхода ограничений доступа или распространения чужих материалов без разрешения правообладателя.</p>
+
+            <button id="restartTourButton" type="button">Пройти обучение еще раз</button>
           </details>
         </section>
       </section>
     </main>
 
     <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <script src="/static/tour.js"></script>
     <script src="/static/app.js"></script>
   </body>
 </html>

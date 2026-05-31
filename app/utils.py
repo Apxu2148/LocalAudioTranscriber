@@ -3,6 +3,7 @@ import json
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from uuid import uuid4
 
 import numpy as np
 import soundfile as sf
@@ -31,6 +32,14 @@ def write_text_file(directory: Path, prefix: str, text: str) -> Path:
 def write_json_file(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def write_json_file_atomic(path: Path, payload: dict) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path.replace(path)
     return path
 
 
@@ -66,6 +75,22 @@ def audio_duration_seconds(audio_path: Path) -> float | None:
         return None
 
     return None
+
+
+def validate_media_for_transcription(media_path: Path) -> None:
+    if media_path.suffix.lower() != ".mp4":
+        return
+
+    try:
+        import av
+
+        with av.open(str(media_path)) as container:
+            if not any(stream.type == "audio" for stream in container.streams):
+                raise RuntimeError("В видеофайле не найдена аудиодорожка.")
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"Не удалось прочитать видеофайл: {exc}") from exc
 
 
 def setup_logging() -> None:

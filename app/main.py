@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 import shutil
 import threading
+from uuid import uuid4
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -15,22 +16,41 @@ from starlette.concurrency import run_in_threadpool
 
 from . import config
 from .audio_recorder import AudioRecorder
+from .queue_manager import QueueFile, QueueManager
 from .system_audio_recorder import SystemAudioRecorder
+from .transcript_store import TranscriptStore, safe_filename_part, technical_details_for_exception
 from .transcriber import AudioTranscriber, ModelLoadError
-from .utils import setup_logging, timestamp_for_filename, write_json_file, write_text_file
+from .utils import setup_logging, timestamp_for_filename, validate_media_for_transcription
 
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
+NO_CACHE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
+
+class NoCacheStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope) -> FileResponse:
+        response = await super().get_response(path, scope)
+        response.headers.update(NO_CACHE_HEADERS)
+        return response
+
+
 app = FastAPI(title="Local Audio Transcriber")
-app.mount("/static", StaticFiles(directory=str(config.STATIC_DIR)), name="static")
+app.mount("/static", NoCacheStaticFiles(directory=str(config.STATIC_DIR)), name="static")
 
 recorder = AudioRecorder()
 system_recorder = SystemAudioRecorder()
 transcriber = AudioTranscriber()
+transcript_store = TranscriptStore()
 recording_lock = threading.Lock()
 active_recording_mode: str | None = None
+active_recording_started_at: float | None = None
+last_recording_duration_sec: float | None = None
 level_poll_lock = threading.Lock()
 level_poll_seen: set[str] = set()
 level_error_log_times: dict[tuple[str, str, str], float] = {}
@@ -53,30 +73,74 @@ class OpenFolderRequest(BaseModel):
     folder: str
 
 
+class QueueStartRequest(BaseModel):
+    model: str | None = None
+
+
+def process_queue_item(item: dict, model_name: str) -> dict:
+    source_path = Path(item["source_path"])
+    result = transcriber.transcribe(source_path, model_name)
+    return transcript_store.save_success(
+        source_path=source_path,
+        source_filename=item["source_filename"],
+        source_type="local_file",
+        result=result,
+    )
+
+
+def save_queue_item_error(item: dict, model_name: str, exc: Exception) -> dict:
+    return transcript_store.save_error(
+        source_path=Path(item["source_path"]),
+        source_filename=item["source_filename"],
+        source_type="local_file",
+        model=model_name,
+        error_message=str(exc),
+        technical_details=technical_details_for_exception(exc),
+    )
+
+
+queue_manager = QueueManager(
+    jobs_dir=config.JOBS_DIR,
+    processor=process_queue_item,
+    error_recorder=save_queue_item_error,
+    media_validator=validate_media_for_transcription,
+)
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     logger.info(
-        "Application started: model=%s device=%s compute_type=%s data_dir=%s recordings_dir=%s transcripts_dir=%s",
+        "Application started: version=%s model=%s device=%s compute_type=%s data_dir=%s recordings_dir=%s transcripts_dir=%s jobs_dir=%s",
+        config.APP_VERSION,
         config.WHISPER_MODEL,
         config.WHISPER_DEVICE,
         config.WHISPER_COMPUTE_TYPE,
         config.DATA_DIR,
         config.RECORDINGS_DIR,
         config.TRANSCRIPTS_DIR,
+        config.JOBS_DIR,
     )
 
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(config.STATIC_DIR / "index.html")
+    return FileResponse(config.STATIC_DIR / "index.html", headers=NO_CACHE_HEADERS)
 
 
 @app.get("/api/status")
 def status() -> dict:
     transcription = transcriber.status()
+    recording_elapsed_sec = (
+        round(time.monotonic() - active_recording_started_at, 1)
+        if active_recording_started_at is not None
+        else 0
+    )
     return {
+        "app_version": config.APP_VERSION,
         "recording": recorder.is_recording or system_recorder.is_recording,
         "recording_mode": active_recording_mode,
+        "recording_elapsed_sec": recording_elapsed_sec,
+        "last_recording_duration_sec": last_recording_duration_sec,
         "mic_recording": recorder.is_recording,
         "system_recording": system_recorder.is_recording,
         "ffmpeg_found": shutil.which("ffmpeg") is not None,
@@ -189,7 +253,7 @@ def start_recording(payload: StartRecordingRequest | None = Body(default=None)) 
     timestamp = timestamp_for_filename()
     recordings: list[dict] = []
 
-    global active_recording_mode
+    global active_recording_mode, active_recording_started_at
     with recording_lock:
         if recorder.is_recording or system_recorder.is_recording:
             raise_api_error("Запись уже идет.")
@@ -215,7 +279,11 @@ def start_recording(payload: StartRecordingRequest | None = Body(default=None)) 
         cleanup_started_recorders()
         with recording_lock:
             active_recording_mode = None
+            active_recording_started_at = None
         raise_api_error(str(exc), status_code=500)
+
+    with recording_lock:
+        active_recording_started_at = time.monotonic()
 
     response = {
         "message": "Запись началась.",
@@ -233,7 +301,7 @@ def stop_recording() -> dict:
     diagnostics_list: list[dict] = []
     errors: list[str] = []
 
-    global active_recording_mode
+    global active_recording_mode, active_recording_started_at, last_recording_duration_sec
     mode = active_recording_mode
 
     logger.info("Stop recording request: mode=%s", mode)
@@ -254,6 +322,7 @@ def stop_recording() -> dict:
 
     with recording_lock:
         active_recording_mode = None
+        active_recording_started_at = None
 
     if not diagnostics_list and errors:
         raise_api_error("; ".join(errors), status_code=500)
@@ -262,6 +331,10 @@ def stop_recording() -> dict:
         raise_api_error("Запись не запущена.")
 
     logger.info("Recording stop finished: mode=%s files=%s errors=%s", mode, len(diagnostics_list), errors)
+    last_recording_duration_sec = max(
+        (float(item.get("duration_sec") or 0) for item in diagnostics_list),
+        default=0,
+    )
 
     return {
         "message": "Запись сохранена.",
@@ -272,6 +345,7 @@ def stop_recording() -> dict:
         "diagnostics": diagnostics_list[0],
         "diagnostics_list": diagnostics_list,
         "errors": errors,
+        "duration_sec": last_recording_duration_sec,
     }
 
 
@@ -280,17 +354,156 @@ async def transcribe_audio(
     file: UploadFile | None = File(default=None),
     model: str | None = Form(default=None),
 ) -> dict:
+    ensure_queue_inactive_for_direct_transcription()
     selected_model = validate_whisper_model(model)
 
     if file is None or not file.filename:
-        raise_api_error("Выберите аудиофайл для транскрибации.")
+        raise_api_error("Выберите аудио- или видеофайл для транскрибации.")
 
-    suffix = Path(file.filename).suffix.lower()
-    if suffix not in config.SUPPORTED_AUDIO_EXTENSIONS:
-        allowed = ", ".join(sorted(config.SUPPORTED_AUDIO_EXTENSIONS))
-        raise_api_error(f"Формат {suffix or '(без расширения)'} не поддерживается. Доступны: {allowed}.")
+    source_filename = Path(file.filename).name
+    upload_path = await save_upload_file(file)
+    logger.info("Uploaded file saved for transcription: file=%s model=%s", upload_path, selected_model)
+    return await transcribe_path(upload_path, source_filename, "local_file", selected_model)
 
-    upload_path = config.UPLOADS_DIR / f"upload_{timestamp_for_filename()}{suffix}"
+
+@app.post("/api/transcribe/file")
+async def transcribe_recorded_file(payload: TranscribeFileRequest) -> dict:
+    ensure_queue_inactive_for_direct_transcription()
+    audio_path = validate_local_audio_path(payload.file_path)
+    selected_model = validate_whisper_model(payload.model)
+    return await transcribe_path(audio_path, audio_path.name, payload.source_type or "recording", selected_model)
+
+
+async def transcribe_path(audio_path: Path, source_filename: str, source_type: str, model_name: str) -> dict:
+    logger.info(
+        "Transcription request accepted: file=%s source_filename=%s source_type=%s model=%s",
+        audio_path,
+        source_filename,
+        source_type,
+        model_name,
+    )
+    local_model = model_local_status(model_name)
+    logger.info("Selected model: model=%s local_available=%s cache_path=%s", model_name, local_model["local"], local_model["path"])
+    if not local_model["local"]:
+        logger.info("Model is not available locally; first download may be attempted: model=%s", model_name)
+
+    try:
+        validate_media_for_transcription(audio_path)
+        result = await run_in_threadpool(transcriber.transcribe, audio_path, model_name)
+        saved = transcript_store.save_success(
+            source_path=audio_path,
+            source_filename=source_filename,
+            source_type=source_type,
+            result=result,
+        )
+    except ModelLoadError as exc:
+        logger.exception(
+            "Model load failed: file=%s model=%s technical_details=%s",
+            audio_path,
+            model_name,
+            exc.technical_details,
+        )
+        save_direct_transcription_error(audio_path, source_filename, source_type, model_name, exc)
+        raise_api_error(
+            exc.user_message,
+            status_code=500,
+            extra={"technical_details": exc.technical_details},
+        )
+    except RuntimeError as exc:
+        logger.exception("Transcription failed: file=%s model=%s", audio_path, model_name)
+        save_direct_transcription_error(audio_path, source_filename, source_type, model_name, exc)
+        raise_api_error(str(exc), status_code=500)
+    except Exception as exc:
+        logger.exception("Unexpected transcription error")
+        save_direct_transcription_error(audio_path, source_filename, source_type, model_name, exc)
+        raise_api_error(f"Непредвиденная ошибка транскрибации: {exc}", status_code=500)
+
+    logger.info(
+        "Transcription saved: file=%s transcript=%s benchmark=%s model=%s device=%s compute_type=%s",
+        audio_path,
+        saved["transcript_path"],
+        saved["benchmark_path"],
+        result.model,
+        result.device,
+        result.compute_type,
+    )
+
+    return {
+        "message": "Транскрибация завершена.",
+        "audio_file_path": str(audio_path),
+        "uploaded_file_path": str(audio_path),
+        **saved,
+    }
+
+
+@app.post("/api/queue/add-files")
+async def queue_add_files(files: list[UploadFile] = File(...)) -> dict:
+    if queue_manager.is_running:
+        raise_api_error("Нельзя добавлять файлы во время обработки очереди.")
+    if not files:
+        raise_api_error("Выберите хотя бы один файл для очереди.")
+
+    validate_upload_filenames(files)
+    queue_files: list[QueueFile] = []
+    for file in files:
+        source_filename = Path(file.filename or "").name
+        upload_path = await save_upload_file(file)
+        queue_files.append(QueueFile(source_path=upload_path, source_filename=source_filename))
+
+    try:
+        return queue_manager.add_files(queue_files)
+    except RuntimeError as exc:
+        raise_api_error(str(exc))
+
+
+@app.post("/api/queue/start")
+def queue_start(payload: QueueStartRequest | None = Body(default=None)) -> dict:
+    if recorder.is_recording or system_recorder.is_recording:
+        raise_api_error("Остановите запись перед запуском очереди.")
+    if transcriber.status()["in_progress"]:
+        raise_api_error("Дождитесь завершения текущей транскрибации.")
+
+    selected_model = validate_whisper_model((payload or QueueStartRequest()).model)
+    try:
+        return queue_manager.start(selected_model)
+    except RuntimeError as exc:
+        raise_api_error(str(exc))
+
+
+@app.post("/api/queue/stop-after-current")
+def queue_stop_after_current() -> dict:
+    try:
+        return queue_manager.stop_after_current()
+    except RuntimeError as exc:
+        raise_api_error(str(exc))
+
+
+@app.post("/api/queue/clear")
+def queue_clear() -> dict:
+    try:
+        return queue_manager.clear()
+    except RuntimeError as exc:
+        raise_api_error(str(exc))
+
+
+@app.post("/api/queue/retry-errors")
+def queue_retry_errors() -> dict:
+    try:
+        return queue_manager.retry_errors()
+    except RuntimeError as exc:
+        raise_api_error(str(exc))
+
+
+@app.get("/api/queue/status")
+def queue_status() -> dict:
+    return queue_manager.status()
+
+
+async def save_upload_file(file: UploadFile) -> Path:
+    source_filename = Path(file.filename or "").name
+    suffix = validate_supported_suffix(source_filename)
+    upload_stem = safe_filename_part(Path(source_filename).stem, max_length=72)
+    upload_path = config.UPLOADS_DIR / f"upload__{timestamp_for_filename()}__{uuid4().hex[:8]}__{upload_stem}{suffix}"
 
     try:
         with upload_path.open("wb") as output_file:
@@ -304,90 +517,51 @@ async def transcribe_audio(
 
     if not upload_path.exists():
         raise_api_error("Загруженный файл не найден после сохранения.", status_code=500)
-
     if upload_path.stat().st_size == 0:
+        upload_path.unlink(missing_ok=True)
         raise_api_error("Загруженный файл пустой.")
 
-    logger.info("Uploaded file saved for transcription: file=%s model=%s", upload_path, selected_model)
-    return await transcribe_path(upload_path, "transcript", selected_model)
+    return upload_path
 
 
-@app.post("/api/transcribe/file")
-async def transcribe_recorded_file(payload: TranscribeFileRequest) -> dict:
-    audio_path = validate_local_audio_path(payload.file_path)
-    transcript_prefix = transcript_prefix_for(audio_path, payload.source_type)
-    selected_model = validate_whisper_model(payload.model)
-    return await transcribe_path(audio_path, transcript_prefix, selected_model)
+def validate_upload_filenames(files: list[UploadFile]) -> None:
+    for file in files:
+        if not file.filename:
+            raise_api_error("У одного из выбранных файлов отсутствует имя.")
+        validate_supported_suffix(file.filename)
 
 
-async def transcribe_path(audio_path: Path, transcript_prefix: str, model_name: str) -> dict:
-    logger.info("Transcription request accepted: file=%s prefix=%s model=%s", audio_path, transcript_prefix, model_name)
-    local_model = model_local_status(model_name)
-    logger.info("Selected model: model=%s local_available=%s cache_path=%s", model_name, local_model["local"], local_model["path"])
-    if not local_model["local"]:
-        logger.info("Model is not available locally; first download may be attempted: model=%s", model_name)
+def validate_supported_suffix(filename: str) -> str:
+    suffix = Path(filename).suffix.lower()
+    if suffix not in config.SUPPORTED_AUDIO_EXTENSIONS:
+        allowed = ", ".join(sorted(config.SUPPORTED_AUDIO_EXTENSIONS))
+        raise_api_error(f"Формат {suffix or '(без расширения)'} не поддерживается. Доступны: {allowed}.")
+    return suffix
 
+
+def ensure_queue_inactive_for_direct_transcription() -> None:
+    if queue_manager.is_running:
+        raise_api_error("Дождитесь завершения очереди перед одиночной транскрибацией.")
+
+
+def save_direct_transcription_error(
+    audio_path: Path,
+    source_filename: str,
+    source_type: str,
+    model_name: str,
+    exc: Exception,
+) -> None:
     try:
-        result = await run_in_threadpool(transcriber.transcribe, audio_path, model_name)
-        transcript_text = result.text or "Распознаваемая речь не найдена."
-        transcript_path = write_text_file(
-            config.TRANSCRIPTS_DIR,
-            f"{transcript_prefix}_{safe_filename_part(result.model)}",
-            transcript_text,
+        transcript_store.save_error(
+            source_path=audio_path,
+            source_filename=source_filename,
+            source_type=source_type,
+            model=model_name,
+            error_message=str(exc),
+            technical_details=technical_details_for_exception(exc),
         )
-        benchmark = {
-            "transcript_file": str(transcript_path),
-            "audio_file": str(audio_path),
-            "source_audio": str(audio_path),
-            "model": result.model,
-            "device": result.device,
-            "compute_type": result.compute_type,
-            "audio_duration_sec": round(result.audio_duration_sec, 3) if result.audio_duration_sec is not None else None,
-            "transcribe_time_sec": round(result.transcribe_time_sec, 3),
-            "realtime_factor": round(result.realtime_factor, 3) if result.realtime_factor is not None else None,
-            "segments_count": len(result.segments),
-            "load_errors": result.load_errors,
-        }
-        benchmark_path = write_json_file(transcript_path.with_suffix(".json"), benchmark)
-    except ModelLoadError as exc:
-        logger.exception(
-            "Model load failed: file=%s model=%s technical_details=%s",
-            audio_path,
-            model_name,
-            exc.technical_details,
-        )
-        raise_api_error(
-            exc.user_message,
-            status_code=500,
-            extra={"technical_details": exc.technical_details},
-        )
-    except RuntimeError as exc:
-        logger.exception("Transcription failed: file=%s model=%s", audio_path, model_name)
-        raise_api_error(str(exc), status_code=500)
-    except Exception as exc:
-        logger.exception("Unexpected transcription error")
-        raise_api_error(f"Непредвиденная ошибка транскрибации: {exc}", status_code=500)
-
-    logger.info(
-        "Transcription saved: file=%s transcript=%s benchmark=%s model=%s device=%s compute_type=%s",
-        audio_path,
-        transcript_path,
-        benchmark_path,
-        result.model,
-        result.device,
-        result.compute_type,
-    )
-
-    return {
-        "message": "Транскрибация завершена.",
-        "text": transcript_text,
-        "segments": result.segments,
-        "audio_file_path": str(audio_path),
-        "uploaded_file_path": str(audio_path),
-        "transcript_path": str(transcript_path),
-        "benchmark_path": str(benchmark_path),
-        "benchmark": benchmark,
-    }
+    except Exception:
+        logger.exception("Failed to save transcription error JSON")
 
 
 def normalize_recording_mode(mode: str) -> str:
@@ -419,16 +593,6 @@ def validate_local_audio_path(file_path: str) -> Path:
         return audio_path
     except RuntimeError as exc:
         raise_api_error(str(exc))
-
-
-def transcript_prefix_for(audio_path: Path, source_type: str | None) -> str:
-    source = (source_type or "").strip().lower()
-    stem = audio_path.stem.lower()
-    if source == "system" or stem.startswith("system_"):
-        return "transcript_system"
-    if source == "mic" or stem.startswith("mic_") or stem.startswith("recording_"):
-        return "transcript_mic"
-    return "transcript"
 
 
 def recent_files(directory: Path, limit: int = 5) -> list[dict]:
@@ -483,10 +647,6 @@ def model_local_status(model_name: str) -> dict:
         "size_label": info.get("size_label", ""),
         "description": info.get("description", ""),
     }
-
-
-def safe_filename_part(value: str) -> str:
-    return "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in value.strip())
 
 
 def log_level_poll_start(source: str) -> None:
