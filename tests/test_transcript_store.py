@@ -1,5 +1,6 @@
 import json
 import re
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -102,6 +103,64 @@ class TranscriptStoreTests(unittest.TestCase):
         cleaned = safe_filename_part(value)
         self.assertLessEqual(len(cleaned), 96)
         self.assertTrue(cleaned.startswith("lesson_"))
+
+    def test_url_metadata_and_title_are_saved(self) -> None:
+        source_path = self.create_source_file("downloaded.m4a")
+        result = SimpleNamespace(
+            text="url text",
+            segments=[],
+            model="base",
+            device="cpu",
+            compute_type="int8",
+            audio_duration_sec=3,
+            transcribe_time_sec=1,
+            realtime_factor=3,
+            load_errors=[],
+        )
+        saved = self.track_result(self.store.save_success(
+            source_path=source_path,
+            source_filename=f"{self.prefix}__Video: title?",
+            source_type="url",
+            result=result,
+            extra_metadata={
+                "source_url": "https://example.test/video",
+                "source_title": "Video: title?",
+                "source_platform": "youtube",
+                "downloaded_audio_path": str(source_path),
+            },
+        ))
+        payload = json.loads(Path(saved["json_path"]).read_text(encoding="utf-8"))
+        self.assertIn("Video_ title_", Path(saved["transcript_path"]).name)
+        self.assertEqual("url", payload["source_type"])
+        self.assertEqual("https://example.test/video", payload["source_url"])
+        self.assertEqual("youtube", payload["source_platform"])
+        self.assertEqual(str(source_path), payload["downloaded_audio_path"])
+
+    def test_benchmark_filename_and_metrics(self) -> None:
+        source_path = self.create_source_file("sample.wav")
+        result = SimpleNamespace(
+            text="benchmark text",
+            segments=[],
+            model="small",
+            device="cpu",
+            compute_type="int8",
+            audio_duration_sec=10,
+            model_load_time_sec=0.2,
+            transcription_time_sec=2,
+        )
+        saved = self.track_result(self.store.save_benchmark(
+            source_path=source_path,
+            source_filename=f"{self.prefix}__sample.wav",
+            result=result,
+            benchmark_mode="cold",
+            benchmark_device="cpu",
+            operation_started_at=time.perf_counter(),
+        ))
+        self.assertIn("__benchmark_cpu_cold__", Path(saved["transcript_path"]).name)
+        payload = json.loads(Path(saved["json_path"]).read_text(encoding="utf-8"))
+        self.assertEqual("benchmark", payload["source_type"])
+        self.assertEqual("cold", payload["benchmark_mode"])
+        self.assertEqual(0.2, payload["realtime_factor_transcription_only"])
 
 
 if __name__ == "__main__":

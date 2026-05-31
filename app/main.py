@@ -16,10 +16,12 @@ from starlette.concurrency import run_in_threadpool
 
 from . import config
 from .audio_recorder import AudioRecorder
-from .queue_manager import QueueFile, QueueManager
+from .benchmark_service import BenchmarkService
+from .queue_manager import QueueFile, QueueManager, QueueUrl
 from .system_audio_recorder import SystemAudioRecorder
 from .transcript_store import TranscriptStore, safe_filename_part, technical_details_for_exception
 from .transcriber import AudioTranscriber, ModelLoadError
+from .url_downloader import UrlDownloader
 from .utils import setup_logging, timestamp_for_filename, validate_media_for_transcription
 
 
@@ -67,6 +69,7 @@ class TranscribeFileRequest(BaseModel):
     file_path: str
     source_type: str | None = None
     model: str | None = None
+    device: str | None = None
 
 
 class OpenFolderRequest(BaseModel):
@@ -75,34 +78,56 @@ class OpenFolderRequest(BaseModel):
 
 class QueueStartRequest(BaseModel):
     model: str | None = None
+    device: str | None = None
 
 
-def process_queue_item(item: dict, model_name: str) -> dict:
+class QueueUrlsRequest(BaseModel):
+    urls: list[str]
+
+
+class BenchmarkRunRequest(BaseModel):
+    source_id: str
+    model: str
+    device: str
+    mode: str
+
+
+def process_queue_item(item: dict, model_name: str, device_preference: str) -> dict:
     source_path = Path(item["source_path"])
-    result = transcriber.transcribe(source_path, model_name)
+    result = transcriber.transcribe(source_path, model_name, device_preference)
     return transcript_store.save_success(
         source_path=source_path,
         source_filename=item["source_filename"],
-        source_type="local_file",
+        source_type=item.get("source_type") or "local_file",
         result=result,
+        extra_metadata=item,
     )
 
 
-def save_queue_item_error(item: dict, model_name: str, exc: Exception) -> dict:
+def save_queue_item_error(item: dict, model_name: str, _device_preference: str, exc: Exception) -> dict:
+    source_path = Path(item.get("source_path") or config.DOWNLOADS_DIR / item["source_filename"])
     return transcript_store.save_error(
-        source_path=Path(item["source_path"]),
+        source_path=source_path,
         source_filename=item["source_filename"],
-        source_type="local_file",
+        source_type=item.get("source_type") or "local_file",
         model=model_name,
         error_message=str(exc),
         technical_details=technical_details_for_exception(exc),
+        extra_metadata=item,
     )
 
 
+url_downloader = UrlDownloader()
 queue_manager = QueueManager(
     jobs_dir=config.JOBS_DIR,
     processor=process_queue_item,
     error_recorder=save_queue_item_error,
+    media_validator=validate_media_for_transcription,
+    downloader=url_downloader.download,
+)
+benchmark_service = BenchmarkService(
+    transcriber=transcriber,
+    transcript_store=transcript_store,
     media_validator=validate_media_for_transcription,
 )
 
@@ -151,6 +176,7 @@ def status() -> dict:
         "microphone": recorder.microphone_status(),
         "system_audio": system_recorder.output_status(),
         "transcription": transcription,
+        "benchmark": benchmark_service.status(),
         "supported_formats": sorted(config.SUPPORTED_AUDIO_EXTENSIONS),
     }
 
@@ -164,7 +190,13 @@ def models() -> dict:
 
 @app.get("/api/storage")
 def storage() -> dict:
+    disk = shutil.disk_usage(config.DATA_DIR)
     return {
+        "disk": {
+            "path": str(config.DATA_DIR),
+            "free_bytes": disk.free,
+            "free_gb": round(disk.free / (1024 ** 3), 1),
+        },
         "recordings": {
             "path": str(config.RECORDINGS_DIR),
             "files": recent_files(config.RECORDINGS_DIR),
@@ -255,6 +287,8 @@ def start_recording(payload: StartRecordingRequest | None = Body(default=None)) 
 
     global active_recording_mode, active_recording_started_at
     with recording_lock:
+        if benchmark_service.is_running:
+            raise_api_error("Дождитесь завершения benchmark перед началом записи.")
         if recorder.is_recording or system_recorder.is_recording:
             raise_api_error("Запись уже идет.")
         active_recording_mode = mode
@@ -353,9 +387,11 @@ def stop_recording() -> dict:
 async def transcribe_audio(
     file: UploadFile | None = File(default=None),
     model: str | None = Form(default=None),
+    device: str | None = Form(default=None),
 ) -> dict:
     ensure_queue_inactive_for_direct_transcription()
     selected_model = validate_whisper_model(model)
+    selected_device = validate_device_preference(device)
 
     if file is None or not file.filename:
         raise_api_error("Выберите аудио- или видеофайл для транскрибации.")
@@ -363,7 +399,7 @@ async def transcribe_audio(
     source_filename = Path(file.filename).name
     upload_path = await save_upload_file(file)
     logger.info("Uploaded file saved for transcription: file=%s model=%s", upload_path, selected_model)
-    return await transcribe_path(upload_path, source_filename, "local_file", selected_model)
+    return await transcribe_path(upload_path, source_filename, "local_file", selected_model, selected_device)
 
 
 @app.post("/api/transcribe/file")
@@ -371,16 +407,24 @@ async def transcribe_recorded_file(payload: TranscribeFileRequest) -> dict:
     ensure_queue_inactive_for_direct_transcription()
     audio_path = validate_local_audio_path(payload.file_path)
     selected_model = validate_whisper_model(payload.model)
-    return await transcribe_path(audio_path, audio_path.name, payload.source_type or "recording", selected_model)
+    selected_device = validate_device_preference(payload.device)
+    return await transcribe_path(audio_path, audio_path.name, payload.source_type or "recording", selected_model, selected_device)
 
 
-async def transcribe_path(audio_path: Path, source_filename: str, source_type: str, model_name: str) -> dict:
+async def transcribe_path(
+    audio_path: Path,
+    source_filename: str,
+    source_type: str,
+    model_name: str,
+    device_preference: str,
+) -> dict:
     logger.info(
-        "Transcription request accepted: file=%s source_filename=%s source_type=%s model=%s",
+        "Transcription request accepted: file=%s source_filename=%s source_type=%s model=%s device=%s",
         audio_path,
         source_filename,
         source_type,
         model_name,
+        device_preference,
     )
     local_model = model_local_status(model_name)
     logger.info("Selected model: model=%s local_available=%s cache_path=%s", model_name, local_model["local"], local_model["path"])
@@ -389,7 +433,7 @@ async def transcribe_path(audio_path: Path, source_filename: str, source_type: s
 
     try:
         validate_media_for_transcription(audio_path)
-        result = await run_in_threadpool(transcriber.transcribe, audio_path, model_name)
+        result = await run_in_threadpool(transcriber.transcribe, audio_path, model_name, device_preference)
         saved = transcript_store.save_success(
             source_path=audio_path,
             source_filename=source_filename,
@@ -438,6 +482,7 @@ async def transcribe_path(audio_path: Path, source_filename: str, source_type: s
 
 @app.post("/api/queue/add-files")
 async def queue_add_files(files: list[UploadFile] = File(...)) -> dict:
+    ensure_benchmark_inactive()
     if queue_manager.is_running:
         raise_api_error("Нельзя добавлять файлы во время обработки очереди.")
     if not files:
@@ -456,16 +501,29 @@ async def queue_add_files(files: list[UploadFile] = File(...)) -> dict:
         raise_api_error(str(exc))
 
 
+@app.post("/api/queue/add-urls")
+def queue_add_urls(payload: QueueUrlsRequest) -> dict:
+    ensure_benchmark_inactive()
+    try:
+        urls = [QueueUrl(source_url=url) for url in payload.urls if url.strip()]
+        return queue_manager.add_urls(urls)
+    except RuntimeError as exc:
+        raise_api_error(str(exc))
+
+
 @app.post("/api/queue/start")
 def queue_start(payload: QueueStartRequest | None = Body(default=None)) -> dict:
+    ensure_benchmark_inactive()
     if recorder.is_recording or system_recorder.is_recording:
         raise_api_error("Остановите запись перед запуском очереди.")
     if transcriber.status()["in_progress"]:
         raise_api_error("Дождитесь завершения текущей транскрибации.")
 
-    selected_model = validate_whisper_model((payload or QueueStartRequest()).model)
+    request = payload or QueueStartRequest()
+    selected_model = validate_whisper_model(request.model)
+    selected_device = validate_device_preference(request.device)
     try:
-        return queue_manager.start(selected_model)
+        return queue_manager.start(selected_model, selected_device)
     except RuntimeError as exc:
         raise_api_error(str(exc))
 
@@ -480,6 +538,7 @@ def queue_stop_after_current() -> dict:
 
 @app.post("/api/queue/clear")
 def queue_clear() -> dict:
+    ensure_benchmark_inactive()
     try:
         return queue_manager.clear()
     except RuntimeError as exc:
@@ -488,6 +547,7 @@ def queue_clear() -> dict:
 
 @app.post("/api/queue/retry-errors")
 def queue_retry_errors() -> dict:
+    ensure_benchmark_inactive()
     try:
         return queue_manager.retry_errors()
     except RuntimeError as exc:
@@ -497,6 +557,39 @@ def queue_retry_errors() -> dict:
 @app.get("/api/queue/status")
 def queue_status() -> dict:
     return queue_manager.status()
+
+
+@app.post("/api/benchmark/upload")
+async def benchmark_upload(file: UploadFile | None = File(default=None)) -> dict:
+    ensure_benchmark_can_start()
+    if file is None or not file.filename:
+        raise_api_error("Выберите локальный файл для benchmark.")
+    source_filename = Path(file.filename).name
+    upload_path = await save_upload_file(file)
+    return benchmark_service.register_source(upload_path, source_filename)
+
+
+@app.post("/api/benchmark/run")
+def benchmark_run(payload: BenchmarkRunRequest) -> dict:
+    ensure_benchmark_can_start()
+    selected_model = validate_whisper_model(payload.model)
+    selected_device = validate_device_preference(payload.device)
+    if selected_device == "auto":
+        raise_api_error("Для benchmark выберите cpu или cuda.")
+    try:
+        return benchmark_service.start(
+            source_id=payload.source_id,
+            model=selected_model,
+            device=selected_device,
+            mode=payload.mode,
+        )
+    except RuntimeError as exc:
+        raise_api_error(str(exc))
+
+
+@app.get("/api/benchmark/status")
+def benchmark_status() -> dict:
+    return benchmark_service.status()
 
 
 async def save_upload_file(file: UploadFile) -> Path:
@@ -542,6 +635,22 @@ def validate_supported_suffix(filename: str) -> str:
 def ensure_queue_inactive_for_direct_transcription() -> None:
     if queue_manager.is_running:
         raise_api_error("Дождитесь завершения очереди перед одиночной транскрибацией.")
+    ensure_benchmark_inactive()
+
+
+def ensure_benchmark_inactive() -> None:
+    if benchmark_service.is_running:
+        raise_api_error("Дождитесь завершения benchmark.")
+
+
+def ensure_benchmark_can_start() -> None:
+    ensure_benchmark_inactive()
+    if queue_manager.is_running:
+        raise_api_error("Дождитесь завершения очереди перед запуском benchmark.")
+    if recorder.is_recording or system_recorder.is_recording:
+        raise_api_error("Остановите запись перед запуском benchmark.")
+    if transcriber.status()["in_progress"]:
+        raise_api_error("Дождитесь завершения текущей транскрибации.")
 
 
 def save_direct_transcription_error(
@@ -577,6 +686,13 @@ def validate_whisper_model(model_name: str | None) -> str:
         allowed = ", ".join(config.SUPPORTED_WHISPER_MODELS)
         raise_api_error(f"Модель Whisper '{selected_model}' недоступна. Доступны: {allowed}.")
     return selected_model
+
+
+def validate_device_preference(device: str | None) -> str:
+    selected_device = (device or config.WHISPER_DEVICE or "auto").strip().lower()
+    if selected_device not in {"auto", "cpu", "cuda"}:
+        raise_api_error("Устройство должно быть одним из значений: auto, cpu, cuda.")
+    return selected_device
 
 
 def validate_local_audio_path(file_path: str) -> Path:

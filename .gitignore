@@ -4,12 +4,14 @@ __pycache__/
 
 data/recordings/*
 data/uploads/*
+data/downloads/*
 data/transcripts/*
 data/logs/*
 data/jobs/*
 
 !data/recordings/.gitkeep
 !data/uploads/.gitkeep
+!data/downloads/.gitkeep
 !data/transcripts/.gitkeep
 !data/logs/.gitkeep
 !data/jobs/.gitkeep

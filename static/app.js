@@ -10,12 +10,10 @@ const recordingState = document.querySelector("#recordingState");
 const recordingOutput = document.querySelector("#recordingOutput");
 const micLevelBlock = document.querySelector("#micLevelBlock");
 const systemLevelBlock = document.querySelector("#systemLevelBlock");
-const micLevelBlocks = document.querySelector("#micLevelBlocks");
 const micLevelMeterFill = document.querySelector("#micLevelMeterFill");
 const micRmsValue = document.querySelector("#micRmsValue");
 const micPeakValue = document.querySelector("#micPeakValue");
 const micLevelWarning = document.querySelector("#micLevelWarning");
-const systemLevelBlocks = document.querySelector("#systemLevelBlocks");
 const systemLevelMeterFill = document.querySelector("#systemLevelMeterFill");
 const systemRmsValue = document.querySelector("#systemRmsValue");
 const systemPeakValue = document.querySelector("#systemPeakValue");
@@ -27,6 +25,8 @@ const transcribeAllRecordingsButton = document.querySelector("#transcribeAllReco
 const transcribeForm = document.querySelector("#transcribeForm");
 const audioFileInput = document.querySelector("#audioFileInput");
 const whisperModelSelect = document.querySelector("#whisperModelSelect");
+const whisperDeviceSelect = document.querySelector("#whisperDeviceSelect");
+const deviceAvailabilityOutput = document.querySelector("#deviceAvailabilityOutput");
 const modelAvailabilityOutput = document.querySelector("#modelAvailabilityOutput");
 const modelDownloadWarning = document.querySelector("#modelDownloadWarning");
 const transcribeButton = document.querySelector("#transcribeButton");
@@ -68,6 +68,21 @@ const queueProgress = document.querySelector("#queueProgress");
 const queueProgressText = document.querySelector("#queueProgressText");
 const queueOutput = document.querySelector("#queueOutput");
 const queueList = document.querySelector("#queueList");
+const queueUrlForm = document.querySelector("#queueUrlForm");
+const queueUrlInput = document.querySelector("#queueUrlInput");
+const queueUrlAddButton = document.querySelector("#queueUrlAddButton");
+const queueSettingsSummary = document.querySelector("#queueSettingsSummary");
+const diskFree = document.querySelector("#diskFree");
+const operationOverlay = document.querySelector("#operationOverlay");
+const operationOverlayTitle = document.querySelector("#operationOverlayTitle");
+const operationOverlayText = document.querySelector("#operationOverlayText");
+const benchmarkUploadForm = document.querySelector("#benchmarkUploadForm");
+const benchmarkFileInput = document.querySelector("#benchmarkFileInput");
+const benchmarkUploadButton = document.querySelector("#benchmarkUploadButton");
+const benchmarkStatusOutput = document.querySelector("#benchmarkStatusOutput");
+const benchmarkCpuResult = document.querySelector("#benchmarkCpuResult");
+const benchmarkCudaResult = document.querySelector("#benchmarkCudaResult");
+const benchmarkButtons = Array.from(document.querySelectorAll("[data-benchmark-device]"));
 
 let micLevelPollInFlight = false;
 let systemLevelPollInFlight = false;
@@ -80,6 +95,34 @@ let recordingStartedAtMs = null;
 let lastRecordingDurationSec = null;
 let queueActive = false;
 let previousQueueStatus = "empty";
+let latestQueueStatus = null;
+let benchmarkActive = false;
+let benchmarkSourceId = null;
+let overlayOwner = null;
+let transcriptionPhase = null;
+let activeRuntimeModel = null;
+
+function t(key, variables = {}) {
+  return window.LATI18N?.t(key, variables) || key;
+}
+
+function translateUiText(value) {
+  return window.LATI18N?.translateText(value) || value;
+}
+
+function showOperation(owner, title, text) {
+  overlayOwner = owner;
+  operationOverlayTitle.textContent = title;
+  operationOverlayText.textContent = text;
+  operationOverlay.hidden = false;
+}
+
+function hideOperation(owner) {
+  if (!owner || overlayOwner === owner) {
+    operationOverlay.hidden = true;
+    overlayOwner = null;
+  }
+}
 
 class ApiError extends Error {
   constructor(message, technicalDetails = "") {
@@ -90,12 +133,12 @@ class ApiError extends Error {
 }
 
 function setOutput(element, message, type = "info") {
-  element.textContent = message;
+  element.textContent = translateUiText(message);
   element.dataset.type = type;
 }
 
 function setAppState(message, type = "idle") {
-  recordingState.textContent = message;
+  recordingState.textContent = translateUiText(message);
   recordingState.dataset.type = type;
 }
 
@@ -103,7 +146,7 @@ function showToast(message, type = "info") {
   const toast = document.createElement("div");
   toast.className = "toast";
   toast.dataset.type = type;
-  toast.textContent = message;
+  toast.textContent = translateUiText(message);
   toastRegion.append(toast);
 
   window.setTimeout(() => {
@@ -124,6 +167,10 @@ function selectedModel() {
   return whisperModelSelect.value || "small";
 }
 
+function selectedDevice() {
+  return whisperDeviceSelect.value || "auto";
+}
+
 function currentMode() {
   return recordingModeSelect.value;
 }
@@ -142,7 +189,7 @@ function hasSelectableDevice(select) {
 
 function setRecordingUi(recording) {
   isRecording = recording;
-  startRecordButton.disabled = recording || isTranscribing || queueActive;
+  startRecordButton.disabled = recording || isTranscribing || queueActive || benchmarkActive;
   stopRecordButton.disabled = !recording;
   recordingModeSelect.disabled = recording;
   micDeviceSelect.disabled = recording;
@@ -159,7 +206,7 @@ async function requestJson(url, options = {}) {
   try {
     response = await fetch(url, options);
   } catch (error) {
-    throw new ApiError("Не удалось получить данные от локального сервера. Обновите страницу Ctrl+F5 или перезапустите run.bat.");
+    throw new ApiError(t("failedFetch"));
   }
   const payload = await response.json().catch(() => ({}));
 
@@ -183,13 +230,13 @@ function formatElapsed(totalSeconds) {
 function updateRecordingTimerUi() {
   if (recordingStartedAtMs !== null) {
     const elapsed = (Date.now() - recordingStartedAtMs) / 1000;
-    recordingTimer.textContent = `Запись идет: ${formatElapsed(elapsed)}`;
+    recordingTimer.textContent = t("recordingNow", { value: formatElapsed(elapsed) });
     return;
   }
 
   recordingTimer.textContent = lastRecordingDurationSec === null
-    ? "Последняя запись: --:--:--"
-    : `Последняя запись: ${formatElapsed(lastRecordingDurationSec)}`;
+    ? t("latestRecording", { value: "--:--:--" })
+    : t("latestRecording", { value: formatElapsed(lastRecordingDurationSec) });
 }
 
 function syncRecordingTimer(status) {
@@ -207,8 +254,6 @@ function syncRecordingTimer(status) {
 
 function updateLevel(level, target, kind) {
   const levelPercent = Math.max(0, Math.min(100, Number(level.level || 0)));
-  const filledBlocks = Math.round(levelPercent / 10);
-  target.blocks.textContent = `${"█".repeat(filledBlocks)}${"░".repeat(10 - filledBlocks)}`;
   target.fill.style.width = `${levelPercent}%`;
   target.rms.textContent = `RMS: ${Number(level.rms || 0).toFixed(6)}`;
   target.peak.textContent = `Peak: ${Number(level.peak || 0).toFixed(6)}`;
@@ -219,7 +264,6 @@ function updateLevel(level, target, kind) {
 }
 
 function resetLevel(target, message, type = "warning") {
-  target.blocks.textContent = "░░░░░░░░░░";
   target.fill.style.width = "0%";
   target.rms.textContent = "RMS: 0.000000";
   target.peak.textContent = "Peak: 0.000000";
@@ -242,7 +286,6 @@ function formatLevelMessage(kind, level) {
 
 function micLevelTarget() {
   return {
-    blocks: micLevelBlocks,
     fill: micLevelMeterFill,
     rms: micRmsValue,
     peak: micPeakValue,
@@ -252,7 +295,6 @@ function micLevelTarget() {
 
 function systemLevelTarget() {
   return {
-    blocks: systemLevelBlocks,
     fill: systemLevelMeterFill,
     rms: systemRmsValue,
     peak: systemPeakValue,
@@ -351,6 +393,8 @@ async function refreshStatus() {
     const runtime = transcription.runtime_device || transcription.configured_device || "auto";
     const compute = transcription.runtime_compute_type || transcription.configured_compute_type || "auto";
     const model = transcription.active_model || transcription.loaded_model || selectedModel() || status.whisper_model;
+    transcriptionPhase = transcription.phase || null;
+    activeRuntimeModel = model;
 
     modelBadge.textContent = `Whisper ${model} · ${runtime}/${compute}`;
     updateRuntimeDetails({
@@ -367,18 +411,27 @@ async function refreshStatus() {
     if (status.whisper_model_status) {
       applyModelStatuses(status.whisper_model_status);
     }
+    deviceAvailabilityOutput.textContent = transcription.cuda_available ? t("cpuGpu") : t("cpuOnly");
 
-    appVersion.textContent = `Версия: ${status.app_version || "неизвестна"}`;
+    appVersion.textContent = `${t("version")}: ${status.app_version || "?"}`;
     syncRecordingTimer(status);
     isTranscribing = localTranscriptionActive || Boolean(transcription.in_progress);
     setRecordingUi(Boolean(status.recording));
     updateRecordingTranscribeActions(lastRecordings);
 
-    if (isTranscribing) {
+    if (isTranscribing && !queueActive && !benchmarkActive) {
       setAppState("Транскрибация выполняется", "active");
+      const downloading = transcription.phase === "loading_model" && !modelStatusByName.get(model)?.local;
+      showOperation(
+        "transcription",
+        downloading ? t("modelDownloading", { model }) : t("transcribing"),
+        downloading ? t("modelDownloadText") : `${model} · ${runtime}/${compute}\n${t("wait")}`,
+      );
+    } else {
+      hideOperation("transcription");
     }
 
-    const ffmpeg = status.ffmpeg_found ? "ffmpeg найден" : "ffmpeg не найден";
+    const ffmpeg = status.ffmpeg_found ? t("ffmpegFound") : t("ffmpegMissing");
     systemStatus.textContent = `${availabilityText(status)}; ${ffmpeg}`;
   } catch (error) {
     systemStatus.textContent = error.message;
@@ -390,15 +443,15 @@ function availabilityText(status) {
   const systemAvailable = Boolean(status.system_audio?.available);
 
   if (micAvailable && systemAvailable) {
-    return "Микрофон доступен, системный звук доступен";
+    return t("devicesBoth");
   }
   if (!micAvailable && systemAvailable) {
-    return "Микрофон недоступен, системный звук доступен";
+    return t("devicesSystem");
   }
   if (micAvailable && !systemAvailable) {
-    return "Микрофон доступен, системный звук недоступен";
+    return t("devicesMic");
   }
-  return "Микрофон и системный звук недоступны";
+  return t("devicesNone");
 }
 
 async function refreshMicLevel() {
@@ -531,6 +584,7 @@ async function transcribeRecordedDiagnostics(diagnostics) {
       file_path: diagnostics.audio_file,
       source_type: diagnostics.source_type,
       model: selectedModel(),
+      device: selectedDevice(),
     }),
   });
 
@@ -570,7 +624,12 @@ async function transcribeAllRecordings() {
     const summaries = [];
     const texts = [];
 
-    for (const diagnostics of lastRecordings) {
+    for (const [index, diagnostics] of lastRecordings.entries()) {
+      showOperation(
+        "transcription",
+        t("transcribing"),
+        `${index + 1} / ${lastRecordings.length}: ${diagnostics.source_type}\n${selectedModel()} · ${selectedDevice()}\n${t("wait")}`,
+      );
       const result = await transcribeRecordedDiagnostics(diagnostics);
       summaries.push(`${diagnostics.source_type}: ${result.transcript_path}`);
       texts.push(`### ${diagnostics.source_type}\n${result.text}`);
@@ -591,6 +650,13 @@ async function runTranscription(callback) {
   transcribeSystemRecordingButton.disabled = true;
   transcribeAllRecordingsButton.disabled = true;
   setAppState("Транскрибация выполняется", "active");
+  const selectedStatus = modelStatusByName.get(selectedModel());
+  showOperation(
+    "transcription",
+    selectedStatus && !selectedStatus.local ? t("modelDownloading", { model: selectedModel() }) : t("transcribing"),
+    selectedStatus && !selectedStatus.local ? t("modelDownloadText") : `${selectedModel()} · ${selectedDevice()}\n${t("wait")}`,
+  );
+  updateLongOperationControls();
   showToast("Транскрибация началась", "info");
 
   try {
@@ -608,6 +674,8 @@ async function runTranscription(callback) {
     transcribeButton.disabled = queueActive;
     updateRecordingTranscribeActions(lastRecordings);
     await refreshStatus();
+    hideOperation("transcription");
+    updateLongOperationControls();
   }
 }
 
@@ -629,6 +697,7 @@ function hideTechnicalDetails() {
 async function refreshStorage() {
   try {
     const storage = await requestJson("/api/storage");
+    diskFree.textContent = t("diskFree", { value: storage.disk?.free_gb ?? "?" });
     recordingsPath.textContent = storage.recordings.path;
     transcriptsPath.textContent = storage.transcripts.path;
     renderFileList(recordingsFileList, storage.recordings.files, "В папке recordings пока нет файлов.");
@@ -702,7 +771,7 @@ function applyModelStatuses(statuses) {
     if (!status) {
       continue;
     }
-    option.textContent = `${status.name} — ${status.description} (${status.message})`;
+    option.textContent = `${status.name} — ${translateUiText(status.description)} (${status.local ? t("modelLocal") : t("modelMissing")})`;
   }
 
   updateModelAvailabilityUi();
@@ -711,16 +780,16 @@ function applyModelStatuses(statuses) {
 function updateModelAvailabilityUi() {
   const status = modelStatusByName.get(selectedModel());
   if (!status) {
-    modelAvailabilityOutput.textContent = "Локальная доступность модели пока не проверена.";
+    modelAvailabilityOutput.textContent = t("modelChecking");
     modelDownloadWarning.textContent = "";
     modelDownloadWarning.dataset.type = "info";
     return;
   }
 
-  modelAvailabilityOutput.textContent = `${status.name} — ${status.message}. ${status.size_label}.`;
+  modelAvailabilityOutput.textContent = `${status.name} — ${status.local ? t("modelLocal") : t("modelMissing")}. ${status.size_label}.`;
 
   if (status.local) {
-    modelDownloadWarning.textContent = "Модель доступна локально. Интернет для этой модели не нужен.";
+    modelDownloadWarning.textContent = t("modelReady");
     modelDownloadWarning.dataset.type = "success";
     return;
   }
@@ -731,7 +800,7 @@ function updateModelAvailabilityUi() {
       ? "Large-v3: потребуется скачать примерно 3.1 GB."
       : "";
   modelDownloadWarning.textContent = [
-    "Модель еще не скачана. При первой загрузке потребуется интернет и свободное место на диске.",
+    t("modelNeedsDownload"),
     heavyWarning,
     heavyWarning ? "Убедитесь, что интернет работает и на диске достаточно свободного места." : "",
   ].filter(Boolean).join("\n");
@@ -745,17 +814,29 @@ function warnAboutSelectedModelDownload() {
   }
 }
 
-const queueStatusLabels = {
-  pending: "Ожидает",
-  analyzing: "Анализируется",
-  extracting_audio: "Извлекается аудио",
-  transcribing: "Транскрибируется",
-  completed: "Готово",
-  error: "Ошибка",
-  cancelled: "Отменено",
-};
+function queueStatusLabel(status) {
+  return {
+    pending: t("statusPending"),
+    downloading: t("statusDownloading"),
+    downloaded: t("statusDownloaded"),
+    analyzing: t("statusAnalyzing"),
+    extracting_audio: t("statusExtracting"),
+    transcribing: t("statusTranscribing"),
+    completed: t("statusCompleted"),
+    error: t("statusError"),
+    cancelled: t("statusCancelled"),
+  }[status] || status;
+}
+
+function updateQueueSettingsSummary(status = null) {
+  queueSettingsSummary.textContent = t("queueSnapshot", {
+    model: status?.model || selectedModel(),
+    device: status?.device_preference || selectedDevice(),
+  });
+}
 
 function renderQueue(status) {
+  latestQueueStatus = status;
   queueActive = status.status === "running";
   const total = Number(status.total_items || 0);
   const completed = Number(status.completed_items || 0);
@@ -767,13 +848,13 @@ function renderQueue(status) {
   queueCompleted.textContent = String(completed);
   queueFailed.textContent = String(failed);
   queuePending.textContent = String(pending);
-  queueCurrent.textContent = status.current_file || "нет";
+  queueCurrent.textContent = status.current_file || t("none");
   queueElapsed.textContent = formatElapsed(status.elapsed_sec);
   queueEta.textContent = status.eta_sec === null || status.eta_sec === undefined
-    ? (status.eta_message || "Оценка появится после обработки первых файлов.")
+    ? (translateUiText(status.eta_message) || t("queueEtaWaiting"))
     : formatElapsed(status.eta_sec);
   queueProgress.value = progress;
-  queueProgressText.textContent = `Очередь выполнена на ${Math.round(progress)}%`;
+  queueProgressText.textContent = t("queueProgress", { value: Math.round(progress) });
 
   queueList.innerHTML = "";
   if (!status.items?.length) {
@@ -785,10 +866,13 @@ function renderQueue(status) {
       const item = document.createElement("li");
       const name = document.createElement("span");
       const state = document.createElement("small");
-      name.textContent = `${queueItem.index}. ${queueItem.source_filename}`;
-      state.textContent = queueStatusLabels[queueItem.status] || queueItem.status;
+      const sourceLabel = queueItem.source_type === "url"
+        ? `${queueItem.source_title || queueItem.source_filename} [URL: ${queueItem.source_platform || "unknown"}]`
+        : queueItem.source_filename;
+      name.textContent = `${queueItem.index}. ${sourceLabel}`;
+      state.textContent = queueStatusLabel(queueItem.status);
       state.dataset.type = queueItem.status;
-      item.title = queueItem.error_message || queueItem.source_path;
+      item.title = queueItem.error_message || queueItem.source_url || queueItem.source_path;
       item.append(name, state);
       queueList.append(item);
     }
@@ -796,14 +880,39 @@ function renderQueue(status) {
 
   queueAddButton.disabled = queueActive;
   queueFileInput.disabled = queueActive;
+  queueUrlAddButton.disabled = queueActive;
+  queueUrlInput.disabled = queueActive;
   queueStartButton.disabled = queueActive || pending === 0;
   queueStopButton.disabled = !queueActive || Boolean(status.stop_after_current);
   queueClearButton.disabled = queueActive || total === 0;
   queueRetryButton.disabled = queueActive || failed === 0;
   whisperModelSelect.disabled = queueActive;
+  whisperDeviceSelect.disabled = queueActive;
   transcribeButton.disabled = queueActive || isTranscribing;
   setRecordingUi(isRecording);
   updateRecordingTranscribeActions(lastRecordings);
+  updateQueueSettingsSummary(queueActive ? status : null);
+
+  if (queueActive) {
+    const current = status.current_item || {};
+    const modelLoading = transcriptionPhase === "loading_model" && !modelStatusByName.get(activeRuntimeModel)?.local;
+    showOperation(
+      "queue",
+      current.status === "downloading"
+        ? t("urlDownloading")
+        : modelLoading
+          ? t("modelDownloading", { model: activeRuntimeModel })
+          : t("queueRunning"),
+      modelLoading ? t("modelDownloadText") : t("queueOverlay", {
+        done: completed + failed,
+        total,
+        item: status.current_file || "-",
+        stage: queueStatusLabel(current.status || "pending"),
+      }),
+    );
+  } else {
+    hideOperation("queue");
+  }
 
   if (previousQueueStatus === "running" && status.status === "completed") {
     const message = `Очередь завершена. Готово: ${completed}, ошибок: ${failed}.`;
@@ -816,6 +925,7 @@ function renderQueue(status) {
   }
 
   previousQueueStatus = status.status;
+  updateLongOperationControls();
 }
 
 async function refreshQueueStatus() {
@@ -837,6 +947,76 @@ async function postQueueAction(url, successMessage) {
   } catch (error) {
     setOutput(queueOutput, error.message, "error");
     showToast(error.message, "error");
+  }
+}
+
+function updateLongOperationControls() {
+  const active = isTranscribing || queueActive || benchmarkActive;
+  whisperModelSelect.disabled = active;
+  whisperDeviceSelect.disabled = active;
+  transcribeButton.disabled = active;
+  queueAddButton.disabled = active;
+  queueFileInput.disabled = active;
+  queueUrlAddButton.disabled = active;
+  queueUrlInput.disabled = active;
+  queueStartButton.disabled = active || Number(latestQueueStatus?.pending_items || 0) === 0;
+  queueClearButton.disabled = active || Number(latestQueueStatus?.total_items || 0) === 0;
+  queueRetryButton.disabled = active || Number(latestQueueStatus?.failed_items || 0) === 0;
+  benchmarkUploadButton.disabled = active;
+  benchmarkFileInput.disabled = active;
+  for (const button of benchmarkButtons) {
+    button.disabled = active || !benchmarkSourceId;
+  }
+  setRecordingUi(isRecording);
+  updateRecordingTranscribeActions(lastRecordings);
+}
+
+function formatBenchmarkResult(result) {
+  if (!result) {
+    return t("noResults");
+  }
+  return [
+    `${result.device?.toUpperCase()} / ${result.benchmark_mode}`,
+    `Total wall time: ${result.total_wall_time_sec ?? "-"} sec`,
+    `Model load time: ${result.model_load_time_sec ?? "-"} sec`,
+    `Transcription time: ${result.transcription_time_sec ?? "-"} sec`,
+    `Save time: ${result.save_time_sec ?? "-"} sec`,
+    `Audio duration: ${result.audio_duration_sec ?? "-"} sec`,
+    `Realtime factor total: ${result.realtime_factor_total ?? "-"}`,
+    `Pure model factor: ${result.realtime_factor_transcription_only ?? "-"}`,
+    `Compute type: ${result.compute_type ?? "-"}`,
+    `TXT: ${result.transcript_path ?? "-"}`,
+    `JSON: ${result.json_path ?? "-"}`,
+  ].join("\n");
+}
+
+function renderBenchmark(status) {
+  benchmarkActive = Boolean(status.running);
+  benchmarkCpuResult.textContent = formatBenchmarkResult(status.results?.cpu);
+  benchmarkCudaResult.textContent = formatBenchmarkResult(status.results?.cuda);
+  if (benchmarkActive) {
+    const current = status.current || {};
+    const modelLoading = transcriptionPhase === "loading_model" && !modelStatusByName.get(activeRuntimeModel)?.local;
+    showOperation(
+      "benchmark",
+      modelLoading ? t("modelDownloading", { model: activeRuntimeModel }) : t("benchmarkRunning"),
+      modelLoading ? t("modelDownloadText") : `${(current.device || "").toUpperCase()} / ${current.mode || ""}\n${current.model || ""}\n${t("wait")}`,
+    );
+    setOutput(benchmarkStatusOutput, t("benchmarkRunning"));
+  } else {
+    hideOperation("benchmark");
+    if (status.last_error) {
+      setOutput(benchmarkStatusOutput, status.last_error, "error");
+    }
+  }
+  updateLongOperationControls();
+}
+
+async function refreshBenchmarkStatus() {
+  try {
+    renderBenchmark(await requestJson("/api/benchmark/status"));
+  } catch (error) {
+    setOutput(benchmarkStatusOutput, error.message, "error");
   }
 }
 
@@ -906,7 +1086,9 @@ outputDeviceSelect.addEventListener("change", refreshSystemLevel);
 whisperModelSelect.addEventListener("change", () => {
   runtimeModel.textContent = selectedModel();
   updateModelAvailabilityUi();
+  updateQueueSettingsSummary();
 });
+whisperDeviceSelect.addEventListener("change", updateQueueSettingsSummary);
 transcribeMicRecordingButton.addEventListener("click", () => transcribeRecordingByType("mic"));
 transcribeSystemRecordingButton.addEventListener("click", () => transcribeRecordingByType("system"));
 transcribeAllRecordingsButton.addEventListener("click", transcribeAllRecordings);
@@ -938,13 +1120,38 @@ queueAddForm.addEventListener("submit", async (event) => {
     queueAddButton.disabled = queueActive;
   }
 });
+queueUrlForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const urls = queueUrlInput.value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  if (!urls.length) {
+    setOutput(queueOutput, "Добавьте хотя бы одну ссылку для очереди.", "error");
+    return;
+  }
+  queueUrlAddButton.disabled = true;
+  try {
+    renderQueue(await requestJson("/api/queue/add-urls", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls }),
+    }));
+    queueUrlInput.value = "";
+    const message = t("urlAdded", { count: urls.length });
+    setOutput(queueOutput, message, "success");
+    showToast(message, "success");
+  } catch (error) {
+    setOutput(queueOutput, error.message, "error");
+    showToast(error.message, "error");
+  } finally {
+    queueUrlAddButton.disabled = queueActive;
+  }
+});
 queueStartButton.addEventListener("click", async () => {
   warnAboutSelectedModelDownload();
   try {
     renderQueue(await requestJson("/api/queue/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: selectedModel() }),
+      body: JSON.stringify({ model: selectedModel(), device: selectedDevice() }),
     }));
     setOutput(queueOutput, "Очередь запущена.");
     showToast("Очередь запущена.", "info");
@@ -956,6 +1163,45 @@ queueStartButton.addEventListener("click", async () => {
 queueStopButton.addEventListener("click", () => postQueueAction("/api/queue/stop-after-current", "Очередь остановится после текущей задачи."));
 queueClearButton.addEventListener("click", () => postQueueAction("/api/queue/clear", "Очередь очищена."));
 queueRetryButton.addEventListener("click", () => postQueueAction("/api/queue/retry-errors", "Ошибочные задачи возвращены в ожидание."));
+
+benchmarkUploadForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const file = benchmarkFileInput.files[0];
+  if (!file) {
+    setOutput(benchmarkStatusOutput, "Выберите локальный файл для benchmark.", "error");
+    return;
+  }
+  const formData = new FormData();
+  formData.append("file", file);
+  benchmarkUploadButton.disabled = true;
+  try {
+    const result = await requestJson("/api/benchmark/upload", { method: "POST", body: formData });
+    benchmarkSourceId = result.source_id;
+    setOutput(benchmarkStatusOutput, t("benchmarkPrepared", { name: result.source_filename }), "success");
+  } catch (error) {
+    benchmarkSourceId = null;
+    setOutput(benchmarkStatusOutput, error.message, "error");
+  } finally {
+    updateLongOperationControls();
+  }
+});
+
+for (const button of benchmarkButtons) {
+  button.addEventListener("click", async () => {
+    try {
+      const device = button.dataset.benchmarkDevice;
+      const mode = button.dataset.benchmarkMode;
+      renderBenchmark(await requestJson("/api/benchmark/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_id: benchmarkSourceId, model: selectedModel(), device, mode }),
+      }));
+      setOutput(benchmarkStatusOutput, t("benchmarkStarted", { device, mode }));
+    } catch (error) {
+      setOutput(benchmarkStatusOutput, error.message, "error");
+    }
+  });
+}
 
 transcribeForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -970,6 +1216,7 @@ transcribeForm.addEventListener("submit", async (event) => {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("model", selectedModel());
+    formData.append("device", selectedDevice());
 
     transcriptText.value = "";
     setOutput(transcribeOutput, "Транскрибирую аудио...");
@@ -996,6 +1243,7 @@ async function boot() {
   await refreshModelStatuses();
   await refreshStorage();
   await refreshQueueStatus();
+  await refreshBenchmarkStatus();
   await refreshMicLevel();
   await refreshSystemLevel();
   window.LocalAudioTranscriberTour?.maybePrompt();
@@ -1008,3 +1256,15 @@ setInterval(refreshStatus, 5000);
 setInterval(refreshStorage, 10000);
 setInterval(updateRecordingTimerUi, 1000);
 setInterval(refreshQueueStatus, 1000);
+setInterval(refreshBenchmarkStatus, 1000);
+
+document.addEventListener("lat-language-change", () => {
+  updateQueueSettingsSummary(queueActive ? latestQueueStatus : null);
+  if (latestQueueStatus) {
+    renderQueue(latestQueueStatus);
+  }
+  refreshStatus();
+  refreshBenchmarkStatus();
+  refreshStorage();
+  refreshModelStatuses();
+});

@@ -10,6 +10,7 @@ STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = BASE_DIR / "data"
 RECORDINGS_DIR = DATA_DIR / "recordings"
 UPLOADS_DIR = DATA_DIR / "uploads"
+DOWNLOADS_DIR = DATA_DIR / "downloads"
 TRANSCRIPTS_DIR = DATA_DIR / "transcripts"
 LOGS_DIR = DATA_DIR / "logs"
 JOBS_DIR = DATA_DIR / "jobs"
@@ -47,7 +48,7 @@ WHISPER_MODEL_INFO = {
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small").strip() or "small"
 WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "auto")
 WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "auto")
-WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "ru").strip() or None
+WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "").strip() or None
 WHISPER_BEAM_SIZE = int(os.getenv("WHISPER_BEAM_SIZE", "1"))
 WHISPER_VAD_FILTER = os.getenv("WHISPER_VAD_FILTER", "true").strip().lower() in {"1", "true", "yes", "on"}
 WHISPER_CONDITION_ON_PREVIOUS_TEXT = (
@@ -82,6 +83,7 @@ def ensure_directories() -> None:
         DATA_DIR,
         RECORDINGS_DIR,
         UPLOADS_DIR,
+        DOWNLOADS_DIR,
         TRANSCRIPTS_DIR,
         LOGS_DIR,
         JOBS_DIR,

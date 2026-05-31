@@ -45,6 +45,8 @@ class TranscriptionResult:
     model: str
     device: str
     compute_type: str
+    model_load_time_sec: float = 0
+    transcription_time_sec: float = 0
     load_errors: list[str] = field(default_factory=list)
 
 
@@ -52,6 +54,7 @@ class AudioTranscriber:
     def __init__(self) -> None:
         self._model: WhisperModel | None = None
         self._model_name: str | None = None
+        self._model_device_preference: str | None = None
         self._model_lock = threading.Lock()
         self._transcribe_lock = threading.Lock()
         self._state_lock = threading.Lock()
@@ -61,12 +64,14 @@ class AudioTranscriber:
         self._dll_paths_added: list[str] = []
         self._is_transcribing = False
         self._active_model: str | None = None
+        self._phase: str | None = None
         self._last_error: str | None = None
 
     def status(self) -> dict:
         with self._state_lock:
             is_transcribing = self._is_transcribing
             active_model = self._active_model
+            phase = self._phase
             last_error = self._last_error
 
         return {
@@ -74,6 +79,7 @@ class AudioTranscriber:
             "supported_models": list(config.SUPPORTED_WHISPER_MODELS),
             "loaded_model": self._model_name,
             "active_model": active_model,
+            "phase": phase,
             "configured_device": config.WHISPER_DEVICE,
             "configured_compute_type": config.WHISPER_COMPUTE_TYPE,
             "runtime_device": self._runtime_device,
@@ -81,14 +87,22 @@ class AudioTranscriber:
             "model_loaded": self._model is not None,
             "in_progress": is_transcribing,
             "cuda_device_count": self._cuda_device_count(),
+            "cuda_available": self._cuda_device_count() > 0,
+            "auto_resolved_device": "cuda" if self._cuda_device_count() > 0 else "cpu",
             "cuda_dll_paths_added": self._dll_paths_added,
             "last_load_errors": self._load_errors,
             "last_error": last_error,
             "ffmpeg_found": shutil.which("ffmpeg") is not None,
         }
 
-    def transcribe(self, audio_path: Path, model_name: str | None = None) -> TranscriptionResult:
+    def transcribe(
+        self,
+        audio_path: Path,
+        model_name: str | None = None,
+        device_preference: str | None = None,
+    ) -> TranscriptionResult:
         selected_model = self._normalize_model_name(model_name)
+        selected_device = self._normalize_device_preference(device_preference)
 
         if not audio_path.exists():
             raise RuntimeError("Файл не найден.")
@@ -99,13 +113,18 @@ class AudioTranscriber:
             raise RuntimeError(f"Формат {suffix or '(без расширения)'} не поддерживается. Доступны: {allowed}.")
 
         with self._transcribe_lock:
-            self._set_transcribing(True, selected_model)
+            self._set_transcribing(True, selected_model, "preparing")
             started_at = time.perf_counter()
 
             try:
                 self._check_ffmpeg()
                 audio_duration = audio_duration_seconds(audio_path)
-                model = self._get_model(selected_model)
+                self._set_phase("loading_model")
+                model_load_started_at = time.perf_counter()
+                model = self._get_model(selected_model, selected_device)
+                model_load_time = time.perf_counter() - model_load_started_at
+                self._set_phase("transcribing")
+                transcription_started_at = time.perf_counter()
 
                 logger.info(
                     "Starting transcription: file=%s model=%s device=%s compute_type=%s duration=%s",
@@ -126,6 +145,7 @@ class AudioTranscriber:
 
                 segments_iter, _info = model.transcribe(str(audio_path), **kwargs)
                 segments = list(segments_iter)
+                transcription_time = time.perf_counter() - transcription_started_at
             except MemoryError as exc:
                 message = self._memory_error_message(selected_model)
                 logger.exception("Transcription failed: not enough memory")
@@ -147,7 +167,7 @@ class AudioTranscriber:
                 self._set_last_error(friendly_message)
                 raise RuntimeError(friendly_message) from exc
             finally:
-                self._set_transcribing(False, None)
+                self._set_transcribing(False, None, None)
 
         transcribe_time = time.perf_counter() - started_at
         realtime_factor = audio_duration / transcribe_time if audio_duration and transcribe_time > 0 else None
@@ -190,25 +210,46 @@ class AudioTranscriber:
             model=selected_model,
             device=self._runtime_device or "unknown",
             compute_type=self._runtime_compute_type or "unknown",
+            model_load_time_sec=model_load_time,
+            transcription_time_sec=transcription_time,
             load_errors=list(self._load_errors),
         )
 
-    def _get_model(self, model_name: str) -> WhisperModel:
+    def clear_model(self) -> None:
         with self._model_lock:
-            if self._model is not None and self._model_name == model_name:
+            self._reset_model_locked()
+
+    def is_model_cached(self, model_name: str, device_preference: str) -> bool:
+        with self._model_lock:
+            return (
+                self._model is not None
+                and self._model_name == model_name
+                and self._model_device_preference == device_preference
+            )
+
+    def _get_model(self, model_name: str, device_preference: str) -> WhisperModel:
+        with self._model_lock:
+            if (
+                self._model is not None
+                and self._model_name == model_name
+                and self._model_device_preference == device_preference
+            ):
                 return self._model
 
-            if self._model is not None and self._model_name != model_name:
-                logger.info("Switching Whisper model: previous=%s next=%s", self._model_name, model_name)
-                self._model = None
-                self._model_name = None
-                self._runtime_device = None
-                self._runtime_compute_type = None
+            if self._model is not None:
+                logger.info(
+                    "Switching Whisper model: previous=%s/%s next=%s/%s",
+                    self._model_name,
+                    self._model_device_preference,
+                    model_name,
+                    device_preference,
+                )
+                self._reset_model_locked()
 
             self._configure_cuda_dll_paths()
             self._load_errors = []
 
-            requested_device = config.WHISPER_DEVICE.strip().lower()
+            requested_device = device_preference
             requested_compute = config.WHISPER_COMPUTE_TYPE.strip().lower()
             cuda_attempted = False
 
@@ -223,18 +264,22 @@ class AudioTranscriber:
 
                     for compute_type in cuda_compute_types:
                         cuda_attempted = True
-                        model = self._try_load_model(model_name, "cuda", compute_type)
+                        model = self._try_load_model(model_name, "cuda", compute_type, requested_device)
                         if model is not None:
                             return model
                 else:
                     self._load_errors.append("CUDA devices were not reported by CTranslate2.")
                     logger.info("CUDA is not available according to CTranslate2")
 
-            if requested_device not in {"auto", "cuda", "cpu"}:
-                self._load_errors.append(f"Unknown WHISPER_DEVICE={config.WHISPER_DEVICE}; falling back to CPU.")
-                logger.warning("Unknown WHISPER_DEVICE=%s; falling back to CPU", config.WHISPER_DEVICE)
+            if requested_device == "cuda":
+                details = " | ".join(self._load_errors) if self._load_errors else "CUDA is unavailable."
+                raise RuntimeError(
+                    "GPU/CUDA недоступна или модель не смогла загрузиться на GPU. "
+                    "Выберите Авто или CPU. "
+                    f"Технические подробности: {details}"
+                )
 
-            if cuda_attempted or requested_device == "cuda":
+            if cuda_attempted:
                 logger.warning(
                     "CUDA model load failed or was unavailable; falling back to CPU: model=%s errors=%s",
                     model_name,
@@ -252,7 +297,7 @@ class AudioTranscriber:
                 if compute_type in seen:
                     continue
                 seen.add(compute_type)
-                model = self._try_load_model(model_name, "cpu", compute_type)
+                model = self._try_load_model(model_name, "cpu", compute_type, requested_device)
                 if model is not None:
                     return model
 
@@ -260,7 +305,13 @@ class AudioTranscriber:
             logger.error("Whisper model load failed: model=%s details=%s", model_name, details)
             raise ModelLoadError(model_name, details)
 
-    def _try_load_model(self, model_name: str, device: str, compute_type: str) -> WhisperModel | None:
+    def _try_load_model(
+        self,
+        model_name: str,
+        device: str,
+        compute_type: str,
+        device_preference: str,
+    ) -> WhisperModel | None:
         try:
             logger.info(
                 "Loading Whisper model: model=%s device=%s compute_type=%s",
@@ -276,6 +327,7 @@ class AudioTranscriber:
             )
             self._model = model
             self._model_name = model_name
+            self._model_device_preference = device_preference
             self._runtime_device = device
             self._runtime_compute_type = compute_type
             logger.info(
@@ -354,18 +406,36 @@ class AudioTranscriber:
             raise RuntimeError(f"Модель Whisper '{selected_model}' не поддерживается в интерфейсе. Доступны: {allowed}.")
         return selected_model
 
+    def _normalize_device_preference(self, device_preference: str | None) -> str:
+        selected_device = (device_preference or config.WHISPER_DEVICE or "auto").strip().lower()
+        if selected_device not in {"auto", "cpu", "cuda"}:
+            raise RuntimeError("Устройство должно быть одним из значений: auto, cpu, cuda.")
+        return selected_device
+
     def _memory_error_message(self, model_name: str) -> str:
         return (
             f"Не хватает памяти для модели Whisper '{model_name}'. "
             "Освободите память или выберите модель меньше, например small, base или tiny."
         )
 
-    def _set_transcribing(self, value: bool, model_name: str | None) -> None:
+    def _set_transcribing(self, value: bool, model_name: str | None, phase: str | None) -> None:
         with self._state_lock:
             self._is_transcribing = value
             self._active_model = model_name
+            self._phase = phase
             if value:
                 self._last_error = None
+
+    def _set_phase(self, phase: str | None) -> None:
+        with self._state_lock:
+            self._phase = phase
+
+    def _reset_model_locked(self) -> None:
+        self._model = None
+        self._model_name = None
+        self._model_device_preference = None
+        self._runtime_device = None
+        self._runtime_compute_type = None
 
     def _set_last_error(self, message: str) -> None:
         with self._state_lock:

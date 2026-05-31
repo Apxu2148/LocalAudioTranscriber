@@ -15,8 +15,50 @@
             <p id="systemStatus">Проверка окружения...</p>
             <p id="appVersion" class="app-version">Версия: загрузка...</p>
           </div>
-          <span id="modelBadge" class="badge" title="Текущая модель Whisper, устройство и compute type.">Whisper small</span>
+          <div class="header-actions">
+            <span id="modelBadge" class="badge" title="Текущая модель Whisper, устройство и compute type.">Whisper small</span>
+            <button id="restartTourButton" type="button" data-i18n="tourButton">Пройти обучение</button>
+            <label class="language-field" for="uiLanguageSelect">
+              <span data-i18n="interface">Интерфейс</span>
+              <select id="uiLanguageSelect">
+                <option value="ru">RU</option>
+                <option value="en">EN</option>
+              </select>
+            </label>
+          </div>
         </header>
+
+        <section id="transcriptionSettings" class="workspace-section">
+          <div class="section-heading">
+            <div>
+              <h2 data-i18n="settingsTitle">Настройки транскрибации</h2>
+              <p class="section-note" data-i18n="settingsNote">Эти настройки применяются к последней записи, выбранному файлу и очереди. Для очереди они фиксируются в момент запуска.</p>
+            </div>
+          </div>
+          <div class="settings-grid">
+            <label class="field" for="whisperModelSelect">
+              <span data-i18n="model">Модель Whisper</span>
+              <select id="whisperModelSelect" title="Чем больше модель, тем выше потенциальное качество, но тем выше требования к памяти.">
+                <option value="tiny">tiny — самая быстрая</option>
+                <option value="base">base — быстрая</option>
+                <option value="small" selected>small — баланс</option>
+                <option value="medium">medium — выше качество</option>
+                <option value="large-v3">large-v3 — максимальное качество</option>
+              </select>
+              <span id="modelAvailabilityOutput" class="hint">Проверяю локальную доступность модели...</span>
+            </label>
+            <label class="field" for="whisperDeviceSelect">
+              <span data-i18n="device">Устройство</span>
+              <select id="whisperDeviceSelect">
+                <option value="auto" data-i18n="auto">Авто</option>
+                <option value="cpu">CPU</option>
+                <option value="cuda">GPU / CUDA</option>
+              </select>
+              <span id="deviceAvailabilityOutput" class="hint" data-i18n="checkingGpu">Проверяю доступность CPU/GPU...</span>
+            </label>
+          </div>
+          <output id="modelDownloadWarning" class="model-warning"></output>
+        </section>
 
         <section class="workspace-section">
           <div class="section-heading">
@@ -68,7 +110,6 @@
             >
               <div class="level-label">
                 <span>Уровень микрофона</span>
-                <span id="micLevelBlocks" class="level-blocks">░░░░░░░░░░</span>
               </div>
               <div class="level-meter" aria-hidden="true">
                 <div id="micLevelMeterFill"></div>
@@ -87,7 +128,6 @@
             >
               <div class="level-label">
                 <span>Уровень системного звука</span>
-                <span id="systemLevelBlocks" class="level-blocks">░░░░░░░░░░</span>
               </div>
               <div class="level-meter" aria-hidden="true">
                 <div id="systemLevelMeterFill"></div>
@@ -117,26 +157,8 @@
           <div class="section-heading">
             <div>
               <h2>Транскрибация аудиофайла</h2>
-              <p class="section-note">Выберите модель один раз, затем транскрибируйте последнюю запись или отдельный файл.</p>
+              <p class="section-note">Используются глобальные настройки модели и устройства из верхней части страницы.</p>
             </div>
-          </div>
-
-          <div class="model-row">
-            <label class="field" for="whisperModelSelect">
-              <span>Модель Whisper</span>
-              <select
-                id="whisperModelSelect"
-                title="Чем больше модель, тем выше потенциальное качество, но тем медленнее транскрибация и выше требования к памяти."
-              >
-                <option value="tiny">tiny — самая быстрая</option>
-                <option value="base">base — быстрая</option>
-                <option value="small" selected>small — баланс</option>
-                <option value="medium">medium — выше качество</option>
-                <option value="large-v3">large-v3 — максимальное качество</option>
-              </select>
-              <span id="modelAvailabilityOutput" class="hint">Проверяю локальную доступность модели...</span>
-            </label>
-            <output id="modelDownloadWarning" class="model-warning"></output>
           </div>
 
           <div class="transcription-grid">
@@ -226,8 +248,8 @@
         <section id="queueSection" class="workspace-section">
           <div class="section-heading">
             <div>
-              <h2>Очередь локальных файлов</h2>
-              <p class="section-note">Файлы обрабатываются последовательно. Поддерживаются .wav, .mp3, .m4a и .mp4.</p>
+              <h2 data-i18n="queueTitle">Очередь файлов и ссылок</h2>
+              <p class="section-note" data-i18n="queueNote">Локальные файлы и публичные ссылки обрабатываются последовательно одним worker-потоком.</p>
             </div>
           </div>
 
@@ -244,6 +266,15 @@
             </label>
             <button id="queueAddButton" type="submit">Добавить файлы в очередь</button>
           </form>
+          <form id="queueUrlForm" class="queue-url-form">
+            <label class="field" for="queueUrlInput">
+              <span data-i18n="queueUrls">Добавить ссылки в очередь, по одной на строку</span>
+              <textarea id="queueUrlInput" rows="4" placeholder="https://..."></textarea>
+            </label>
+            <button id="queueUrlAddButton" type="submit" data-i18n="addUrls">Добавить ссылки в очередь</button>
+          </form>
+          <p id="queueSettingsSummary" class="section-note">Очередь будет обработана с текущими настройками.</p>
+          <p class="section-note" data-i18n="queueFrozen">Настройки очереди фиксируются в момент запуска. Во время обработки изменить модель или устройство нельзя.</p>
 
           <div class="actions">
             <button id="queueStartButton" type="button">Запустить очередь</button>
@@ -269,10 +300,46 @@
           <ul id="queueList" class="queue-list"></ul>
         </section>
 
+        <section id="benchmarkSection" class="workspace-section">
+          <div class="section-heading">
+            <div>
+              <h2 data-i18n="benchmarkTitle">Бенчмарк производительности</h2>
+              <p class="section-note" data-i18n="benchmarkNote">Cold Run включает загрузку модели. Warm Run переиспользует модель после успешного Cold Run для того же файла, модели и устройства.</p>
+            </div>
+          </div>
+          <form id="benchmarkUploadForm" class="queue-add-form">
+            <label class="field file-field" for="benchmarkFileInput">
+              <span data-i18n="benchmarkFile">Файл для benchmark</span>
+              <input id="benchmarkFileInput" type="file" accept=".wav,.mp3,.m4a,.mp4,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,video/mp4" />
+            </label>
+            <button id="benchmarkUploadButton" type="submit" data-i18n="benchmarkPrepare">Подготовить файл</button>
+          </form>
+          <output id="benchmarkStatusOutput" class="output"></output>
+          <div class="benchmark-grid">
+            <section class="benchmark-card">
+              <h3>CPU</h3>
+              <div class="actions">
+                <button type="button" data-benchmark-device="cpu" data-benchmark-mode="cold">Benchmark Cold Run</button>
+                <button type="button" data-benchmark-device="cpu" data-benchmark-mode="warm">Benchmark Warm Run</button>
+              </div>
+              <pre id="benchmarkCpuResult" data-i18n="noResults">Результатов пока нет.</pre>
+            </section>
+            <section class="benchmark-card">
+              <h3>GPU / CUDA</h3>
+              <div class="actions">
+                <button type="button" data-benchmark-device="cuda" data-benchmark-mode="cold">Benchmark Cold Run</button>
+                <button type="button" data-benchmark-device="cuda" data-benchmark-mode="warm">Benchmark Warm Run</button>
+              </div>
+              <pre id="benchmarkCudaResult" data-i18n="noResults">Результатов пока нет.</pre>
+            </section>
+          </div>
+        </section>
+
         <section class="workspace-section">
           <div class="section-heading">
             <div>
               <h2>Файлы</h2>
+              <p id="diskFree" class="section-note" data-i18n="diskChecking">Диск: проверяю свободное место...</p>
             </div>
           </div>
 
@@ -358,13 +425,21 @@
             <p>Используйте приложение только для аудио, видео и файлов, к которым у вас есть законный доступ.</p>
             <p>Не используйте приложение для скрытой записи чужих разговоров, перехвата сообщений, обхода ограничений доступа или распространения чужих материалов без разрешения правообладателя.</p>
 
-            <button id="restartTourButton" type="button">Пройти обучение еще раз</button>
+            <p data-i18n="tourRepeat">Обучение можно пройти повторно в любой момент по кнопке в верхней части окна.</p>
           </details>
         </section>
       </section>
     </main>
 
     <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <div id="operationOverlay" class="operation-overlay" hidden>
+      <section class="operation-card" role="status" aria-live="polite">
+        <div class="operation-spinner" aria-hidden="true"></div>
+        <h2 id="operationOverlayTitle" data-i18n="operation">Выполняется операция</h2>
+        <p id="operationOverlayText" data-i18n="wait">Пожалуйста, дождитесь завершения.</p>
+      </section>
+    </div>
+    <script src="/static/i18n.js"></script>
     <script src="/static/tour.js"></script>
     <script src="/static/app.js"></script>
   </body>

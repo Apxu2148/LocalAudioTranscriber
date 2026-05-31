@@ -60,6 +60,26 @@ textarea {
   background: #fbfcfd;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.language-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.language-field select {
+  width: auto;
+}
+
 .workspace-section {
   border-top: 1px solid var(--line);
 }
@@ -171,11 +191,16 @@ h4 {
   display: contents;
 }
 
-.model-row {
+.model-row,
+.settings-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 420px) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   align-items: start;
+}
+
+.settings-grid + .model-warning {
+  margin-top: 14px;
 }
 
 .field {
@@ -298,12 +323,6 @@ summary:focus-visible {
   justify-content: space-between;
 }
 
-.level-blocks {
-  color: var(--accent-strong);
-  letter-spacing: 0;
-  font-family: Consolas, "Courier New", monospace;
-}
-
 .level-meter {
   width: 100%;
   height: 16px;
@@ -375,6 +394,40 @@ summary:focus-visible {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: end;
+}
+
+.queue-url-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-top: 14px;
+}
+
+.queue-url-form textarea {
+  min-height: 92px;
+  margin-top: 0;
+}
+
+.benchmark-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.benchmark-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--surface-soft);
+}
+
+.benchmark-card pre {
+  min-height: 150px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--muted);
 }
 
 .queue-progress-grid {
@@ -658,6 +711,53 @@ textarea {
   transform: translateY(-4px);
 }
 
+.operation-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(24, 32, 42, 0.56);
+}
+
+.operation-overlay[hidden] {
+  display: none;
+}
+
+.operation-card {
+  width: min(560px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 24px;
+  background: var(--surface);
+  box-shadow: 0 22px 70px rgba(24, 32, 42, 0.28);
+  text-align: center;
+}
+
+.operation-card p {
+  margin-top: 12px;
+  color: var(--muted);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.operation-spinner {
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 16px;
+  border: 4px solid #d8dee7;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .tour-backdrop {
   position: fixed;
   inset: 0;
@@ -748,11 +848,14 @@ textarea {
 
   .form-grid,
   .model-row,
+  .settings-grid,
   .level-grid,
   .transcription-grid,
+  .benchmark-grid,
   .runtime-grid,
   .storage-grid,
   .queue-add-form,
+  .queue-url-form,
   .queue-progress-grid {
     grid-template-columns: 1fr;
   }

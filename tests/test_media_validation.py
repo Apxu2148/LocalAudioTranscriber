@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from uuid import uuid4
 
-from app.utils import validate_media_for_transcription
+from app.utils import audio_duration_seconds, validate_media_for_transcription
 
 
 PROJECT_TMP = Path(__file__).resolve().parents[1] / "tmp"
@@ -42,6 +42,11 @@ class MediaValidationTests(unittest.TestCase):
         self.run_ffmpeg("-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.2", "-c:v", "mpeg4", str(path))
         with self.assertRaisesRegex(RuntimeError, "В видеофайле не найдена аудиодорожка"):
             validate_media_for_transcription(path)
+
+    def test_reads_short_mp3_fixture_duration(self) -> None:
+        path = self.create_path("short.mp3")
+        self.run_ffmpeg("-f", "lavfi", "-i", "sine=frequency=440:duration=0.2", str(path))
+        self.assertGreater(audio_duration_seconds(path) or 0, 0)
 
 
 if __name__ == "__main__":
