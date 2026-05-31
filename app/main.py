@@ -85,6 +85,15 @@ class QueueUrlsRequest(BaseModel):
     urls: list[str]
 
 
+class QueueRecordingRequest(BaseModel):
+    file_path: str
+    source_type: str
+
+
+class QueueRecordingsRequest(BaseModel):
+    files: list[QueueRecordingRequest]
+
+
 class BenchmarkRunRequest(BaseModel):
     source_id: str
     model: str
@@ -205,6 +214,15 @@ def storage() -> dict:
             "path": str(config.TRANSCRIPTS_DIR),
             "files": recent_files(config.TRANSCRIPTS_DIR),
         },
+    }
+
+
+@app.get("/api/transcripts/read")
+def read_transcript(file_path: str) -> dict:
+    transcript_path = validate_transcript_txt_path(file_path)
+    return {
+        "file_path": str(transcript_path),
+        "text": transcript_path.read_text(encoding="utf-8"),
     }
 
 
@@ -501,6 +519,34 @@ async def queue_add_files(files: list[UploadFile] = File(...)) -> dict:
         raise_api_error(str(exc))
 
 
+@app.post("/api/queue/add-recordings")
+def queue_add_recordings(payload: QueueRecordingsRequest) -> dict:
+    ensure_benchmark_inactive()
+    if queue_manager.is_running:
+        raise_api_error("Нельзя добавлять записи во время обработки очереди.")
+    if not payload.files:
+        raise_api_error("Выберите хотя бы одну запись для очереди.")
+
+    queue_files: list[QueueFile] = []
+    for recording in payload.files:
+        source_type = recording.source_type.strip().lower()
+        if source_type not in {"mic", "system"}:
+            raise_api_error("Тип записи должен быть mic или system.")
+        source_path = validate_recording_audio_path(recording.file_path)
+        queue_files.append(
+            QueueFile(
+                source_path=source_path,
+                source_filename=source_path.name,
+                source_type=source_type,
+            )
+        )
+
+    try:
+        return queue_manager.add_files(queue_files)
+    except RuntimeError as exc:
+        raise_api_error(str(exc))
+
+
 @app.post("/api/queue/add-urls")
 def queue_add_urls(payload: QueueUrlsRequest) -> dict:
     ensure_benchmark_inactive()
@@ -707,6 +753,37 @@ def validate_local_audio_path(file_path: str) -> Path:
             allowed = ", ".join(sorted(config.SUPPORTED_AUDIO_EXTENSIONS))
             raise RuntimeError(f"Формат {audio_path.suffix or '(без расширения)'} не поддерживается. Доступны: {allowed}.")
         return audio_path
+    except RuntimeError as exc:
+        raise_api_error(str(exc))
+
+
+def validate_recording_audio_path(file_path: str) -> Path:
+    try:
+        audio_path = Path(file_path).resolve()
+        recordings_dir = config.RECORDINGS_DIR.resolve()
+        if not audio_path.is_relative_to(recordings_dir):
+            raise RuntimeError("Можно добавлять только записи из папки data/recordings.")
+        if not audio_path.is_file():
+            raise RuntimeError("Файл записи не найден.")
+        if audio_path.suffix.lower() not in config.SUPPORTED_AUDIO_EXTENSIONS:
+            allowed = ", ".join(sorted(config.SUPPORTED_AUDIO_EXTENSIONS))
+            raise RuntimeError(f"Формат {audio_path.suffix or '(без расширения)'} не поддерживается. Доступны: {allowed}.")
+        return audio_path
+    except RuntimeError as exc:
+        raise_api_error(str(exc))
+
+
+def validate_transcript_txt_path(file_path: str) -> Path:
+    try:
+        transcript_path = Path(file_path).resolve()
+        transcripts_dir = config.TRANSCRIPTS_DIR.resolve()
+        if not transcript_path.is_relative_to(transcripts_dir):
+            raise RuntimeError("Можно читать только TXT-файлы из папки data/transcripts.")
+        if transcript_path.suffix.lower() != ".txt":
+            raise RuntimeError("Можно читать только TXT-файлы транскриптов.")
+        if not transcript_path.is_file():
+            raise RuntimeError("TXT-файл транскрипта не найден.")
+        return transcript_path
     except RuntimeError as exc:
         raise_api_error(str(exc))
 

@@ -377,10 +377,64 @@ summary:focus-visible {
   background: var(--surface-soft);
 }
 
+.unified-transcription-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 16px;
+}
+
 .transcription-column .actions {
   display: grid;
   grid-template-columns: 1fr;
   align-items: stretch;
+}
+
+.source-group {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.source-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.native-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.file-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.file-picker-button {
+  flex: 0 0 auto;
+}
+
+.file-picker-text {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.result-label {
+  display: block;
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .file-transcribe-form {
@@ -402,6 +456,10 @@ summary:focus-visible {
   gap: 12px;
   align-items: end;
   margin-top: 14px;
+}
+
+.source-group.queue-url-form {
+  grid-template-columns: 1fr;
 }
 
 .queue-url-form textarea {
@@ -491,6 +549,24 @@ summary:focus-visible {
 
 .queue-list small {
   color: var(--muted);
+}
+
+.file-link {
+  width: auto;
+  min-height: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+}
+
+.file-link:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent);
 }
 
 .queue-list [data-type="error"] {
@@ -711,41 +787,32 @@ textarea {
   transform: translateY(-4px);
 }
 
-.operation-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1100;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgba(24, 32, 42, 0.56);
-}
-
-.operation-overlay[hidden] {
+.operation-banner[hidden] {
   display: none;
 }
 
-.operation-card {
-  width: min(560px, 100%);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 24px;
-  background: var(--surface);
-  box-shadow: 0 22px 70px rgba(24, 32, 42, 0.28);
-  text-align: center;
+.operation-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+  border: 1px solid rgba(20, 108, 106, 0.45);
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #eef8f7;
 }
 
-.operation-card p {
-  margin-top: 12px;
+.operation-banner p {
+  margin-top: 4px;
   color: var(--muted);
-  line-height: 1.55;
+  line-height: 1.45;
   white-space: pre-wrap;
 }
 
 .operation-spinner {
-  width: 42px;
-  height: 42px;
-  margin: 0 auto 16px;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
   border: 4px solid #d8dee7;
   border-top-color: var(--accent);
   border-radius: 50%;
@@ -848,10 +915,11 @@ textarea {
 
   .form-grid,
   .model-row,
-  .settings-grid,
-  .level-grid,
-  .transcription-grid,
-  .benchmark-grid,
+    .settings-grid,
+    .level-grid,
+    .transcription-grid,
+    .unified-transcription-grid,
+    .benchmark-grid,
   .runtime-grid,
   .storage-grid,
   .queue-add-form,

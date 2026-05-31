@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Local Audio Transcriber</title>
+    <title data-i18n="appTitle"></title>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
@@ -11,15 +11,15 @@
       <section class="workspace-panel">
         <header class="app-header">
           <div>
-            <h1>Local Audio Transcriber</h1>
-            <p id="systemStatus">Проверка окружения...</p>
-            <p id="appVersion" class="app-version">Версия: загрузка...</p>
+            <h1 data-i18n="appTitle"></h1>
+            <p id="systemStatus" data-i18n="environmentChecking"></p>
+            <p id="appVersion" class="app-version" data-i18n="versionLoading"></p>
           </div>
           <div class="header-actions">
-            <span id="modelBadge" class="badge" title="Текущая модель Whisper, устройство и compute type.">Whisper small</span>
-            <button id="restartTourButton" type="button" data-i18n="tourButton">Пройти обучение</button>
+            <span id="modelBadge" class="badge" data-i18n="modelBadgeDefault" data-i18n-title="modelBadgeTitle"></span>
+            <button id="restartTourButton" type="button" data-i18n="tourButton"></button>
             <label class="language-field" for="uiLanguageSelect">
-              <span data-i18n="interface">Интерфейс</span>
+              <span data-i18n="interface"></span>
               <select id="uiLanguageSelect">
                 <option value="ru">RU</option>
                 <option value="en">EN</option>
@@ -31,414 +31,282 @@
         <section id="transcriptionSettings" class="workspace-section">
           <div class="section-heading">
             <div>
-              <h2 data-i18n="settingsTitle">Настройки транскрибации</h2>
-              <p class="section-note" data-i18n="settingsNote">Эти настройки применяются к последней записи, выбранному файлу и очереди. Для очереди они фиксируются в момент запуска.</p>
+              <h2 data-i18n="settingsTitle"></h2>
+              <p class="section-note" data-i18n="settingsNote"></p>
             </div>
           </div>
           <div class="settings-grid">
             <label class="field" for="whisperModelSelect">
-              <span data-i18n="model">Модель Whisper</span>
-              <select id="whisperModelSelect" title="Чем больше модель, тем выше потенциальное качество, но тем выше требования к памяти.">
-                <option value="tiny">tiny — самая быстрая</option>
-                <option value="base">base — быстрая</option>
-                <option value="small" selected>small — баланс</option>
-                <option value="medium">medium — выше качество</option>
-                <option value="large-v3">large-v3 — максимальное качество</option>
+              <span data-i18n="model"></span>
+              <select id="whisperModelSelect" data-i18n-title="modelSelectTitle">
+                <option value="tiny">tiny</option>
+                <option value="base">base</option>
+                <option value="small" selected>small</option>
+                <option value="medium">medium</option>
+                <option value="large-v3">large-v3</option>
               </select>
-              <span id="modelAvailabilityOutput" class="hint">Проверяю локальную доступность модели...</span>
+              <span id="modelAvailabilityOutput" class="hint" data-i18n="modelChecking"></span>
             </label>
             <label class="field" for="whisperDeviceSelect">
-              <span data-i18n="device">Устройство</span>
+              <span data-i18n="device"></span>
               <select id="whisperDeviceSelect">
-                <option value="auto" data-i18n="auto">Авто</option>
+                <option value="auto" data-i18n="auto"></option>
                 <option value="cpu">CPU</option>
                 <option value="cuda">GPU / CUDA</option>
               </select>
-              <span id="deviceAvailabilityOutput" class="hint" data-i18n="checkingGpu">Проверяю доступность CPU/GPU...</span>
+              <span id="deviceAvailabilityOutput" class="hint" data-i18n="checkingGpu"></span>
             </label>
           </div>
           <output id="modelDownloadWarning" class="model-warning"></output>
         </section>
 
-        <section class="workspace-section">
+        <section id="recordingSection" class="workspace-section">
           <div class="section-heading">
-            <div>
-              <h2>Запись аудио</h2>
-            </div>
-            <span id="recordingState" class="state">Готово к записи</span>
+            <div><h2 data-i18n="recording"></h2></div>
+            <span id="recordingState" class="state" data-i18n="readyToRecord"></span>
           </div>
-
           <div class="form-grid">
             <label class="field" for="recordingModeSelect">
-              <span>Режим записи</span>
-              <select
-                id="recordingModeSelect"
-                title="Режим “оба файла” сохраняет микрофон и системный звук отдельно, без смешивания."
-              >
-                <option value="mic">Микрофон</option>
-                <option value="system">Системный звук</option>
-                <option value="both">Микрофон + системный звук</option>
+              <span data-i18n="recordingMode"></span>
+              <select id="recordingModeSelect" data-i18n-title="recordingModeTitle">
+                <option value="mic" data-i18n="microphone"></option>
+                <option value="system" data-i18n="systemAudio"></option>
+                <option value="both" data-i18n="microphoneAndSystem"></option>
               </select>
             </label>
-
             <label id="micDeviceRow" class="field" for="micDeviceSelect">
-              <span>Микрофон</span>
-              <select id="micDeviceSelect" title="Микрофон записывает ваш голос и окружающие звуки."></select>
+              <span data-i18n="microphone"></span>
+              <select id="micDeviceSelect" data-i18n-title="microphoneSelectTitle"></select>
             </label>
-
             <label id="systemDeviceRow" class="field" for="outputDeviceSelect">
-              <span>Устройство вывода</span>
-              <select
-                id="outputDeviceSelect"
-                title="Системный звук — это звук, который воспроизводится на компьютере: YouTube, браузер, онлайн-встречи, плееры."
-              ></select>
+              <span data-i18n="outputDevice"></span>
+              <select id="outputDeviceSelect" data-i18n-title="outputDeviceSelectTitle"></select>
             </label>
-
             <div class="field field-action">
               <span>&nbsp;</span>
-              <button id="refreshDevicesButton" type="button" title="Обновляет списки микрофонов и output-устройств Windows.">
-                Обновить устройства
-              </button>
+              <button id="refreshDevicesButton" type="button" data-i18n="refreshDevices" data-i18n-title="refreshDevicesTitle"></button>
             </div>
           </div>
-
           <div class="level-grid">
-            <div
-              id="micLevelBlock"
-              class="level-block"
-              title="Если индикатор уровня не двигается, выбранный микрофон, скорее всего, не слышит звук."
-            >
-              <div class="level-label">
-                <span>Уровень микрофона</span>
-              </div>
-              <div class="level-meter" aria-hidden="true">
-                <div id="micLevelMeterFill"></div>
-              </div>
+            <div id="micLevelBlock" class="level-block" data-i18n-title="micLevelTitle">
+              <div class="level-label"><span data-i18n="microphoneLevel"></span></div>
+              <div class="level-meter" aria-hidden="true"><div id="micLevelMeterFill"></div></div>
               <div class="metrics">
-                <span id="micRmsValue">RMS: 0.000000</span>
-                <span id="micPeakValue">Peak: 0.000000</span>
+                <span id="micRmsValue" data-i18n="rmsZero"></span>
+                <span id="micPeakValue" data-i18n="peakZero"></span>
               </div>
               <output id="micLevelWarning" class="output compact"></output>
             </div>
-
-            <div
-              id="systemLevelBlock"
-              class="level-block"
-              title="Если индикатор системного звука не двигается, проверьте выбранное output-устройство и громкость Windows."
-            >
-              <div class="level-label">
-                <span>Уровень системного звука</span>
-              </div>
-              <div class="level-meter" aria-hidden="true">
-                <div id="systemLevelMeterFill"></div>
-              </div>
+            <div id="systemLevelBlock" class="level-block" data-i18n-title="systemLevelTitle">
+              <div class="level-label"><span data-i18n="systemAudioLevel"></span></div>
+              <div class="level-meter" aria-hidden="true"><div id="systemLevelMeterFill"></div></div>
               <div class="metrics">
-                <span id="systemRmsValue">RMS: 0.000000</span>
-                <span id="systemPeakValue">Peak: 0.000000</span>
+                <span id="systemRmsValue" data-i18n="rmsZero"></span>
+                <span id="systemPeakValue" data-i18n="peakZero"></span>
               </div>
               <output id="systemLevelWarning" class="output compact"></output>
             </div>
           </div>
-
           <div class="actions">
-            <button id="startRecordButton" type="button" title="Начинает запись в выбранном режиме.">
-              Начать запись
-            </button>
-            <button id="stopRecordButton" type="button" disabled title="Останавливает текущую запись и сохраняет WAV-файл.">
-              Остановить запись
-            </button>
+            <button id="startRecordButton" type="button" data-i18n="startRecording" data-i18n-title="startRecordingTitle"></button>
+            <button id="stopRecordButton" type="button" disabled data-i18n="stopRecording" data-i18n-title="stopRecordingTitle"></button>
           </div>
           <output id="recordingOutput" class="output"></output>
-          <p id="recordingTimer" class="recording-timer">Последняя запись: --:--:--</p>
-
-        </section>
-
-        <section class="workspace-section">
-          <div class="section-heading">
-            <div>
-              <h2>Транскрибация аудиофайла</h2>
-              <p class="section-note">Используются глобальные настройки модели и устройства из верхней части страницы.</p>
-            </div>
-          </div>
-
-          <div class="transcription-grid">
-            <div id="recordingTranscribeActions" class="transcription-column">
-              <div class="subsection-heading">
-                <h3>Транскрибация последней записи</h3>
-                <p>Эти кнопки используют файлы, созданные при последней записи.</p>
-              </div>
-              <div class="actions secondary-actions">
-                <button
-                  id="transcribeMicRecordingButton"
-                  type="button"
-                  disabled
-                  title="Транскрибирует WAV-файл микрофона из последней записи."
-                >
-                  Транскрибировать микрофон
-                </button>
-                <button
-                  id="transcribeSystemRecordingButton"
-                  type="button"
-                  disabled
-                  title="Транскрибирует WAV-файл системного звука из последней записи."
-                >
-                  Транскрибировать системный звук
-                </button>
-                <button
-                  id="transcribeAllRecordingsButton"
-                  type="button"
-                  disabled
-                  title="Последовательно транскрибирует оба WAV-файла последней записи."
-                >
-                  Транскрибировать оба файла
-                </button>
-              </div>
-            </div>
-
-            <div class="transcription-column">
-              <div class="subsection-heading">
-                <h3>Транскрибация выбранного файла</h3>
-                <p id="supportedFormats" title="Для .mp4 программа извлекает и транскрибирует только аудиодорожку. Видеоряд не анализируется.">Поддерживаемые форматы аудио/видео: .wav, .mp3, .m4a, .mp4</p>
-              </div>
-              <form id="transcribeForm" class="file-transcribe-form">
-                <label class="field file-field" for="audioFileInput">
-                  <span>Файл</span>
-                  <input
-                    id="audioFileInput"
-                    type="file"
-                    accept=".wav,.mp3,.m4a,.mp4,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,video/mp4"
-                    title="Выберите локальный аудио- или видеофайл .wav, .mp3, .m4a или .mp4. Для .mp4 транскрибируется только аудиодорожка."
-                  />
-                </label>
-                <button id="transcribeButton" type="submit" title="Транскрибирует выбранный файл выбранной моделью Whisper.">
-                  Транскрибировать выбранный файл
-                </button>
-              </form>
-            </div>
-          </div>
-
-          <div id="runtimeDetails" class="runtime-grid">
-            <div title="Модель Whisper, выбранная для транскрибации.">
-              <span>Модель</span>
-              <strong id="runtimeModel">small</strong>
-            </div>
-            <div title="Устройство, на котором реально выполнялась транскрибация: cuda или cpu.">
-              <span>Устройство</span>
-              <strong id="runtimeDevice">auto</strong>
-            </div>
-            <div title="Compute type faster-whisper: например float16, int8_float16 или int8.">
-              <span>Compute type</span>
-              <strong id="runtimeCompute">auto</strong>
-            </div>
-            <div title="Отношение длительности аудио ко времени транскрибации.">
-              <span>Скорость</span>
-              <strong id="runtimeSpeed">н/д</strong>
-            </div>
-          </div>
-
-          <output id="transcribeOutput" class="output"></output>
-          <details id="transcribeTechnicalDetails" class="technical-details" hidden>
-            <summary>Технические подробности</summary>
-            <pre id="transcribeTechnicalText"></pre>
-          </details>
-          <output id="benchmarkOutput" class="output compact"></output>
-          <textarea id="transcriptText" readonly spellcheck="false" aria-label="Результат транскрибации"></textarea>
+          <p id="recordingTimer" class="recording-timer" data-i18n="latestRecordingEmpty"></p>
         </section>
 
         <section id="queueSection" class="workspace-section">
           <div class="section-heading">
             <div>
-              <h2 data-i18n="queueTitle">Очередь файлов и ссылок</h2>
-              <p class="section-note" data-i18n="queueNote">Локальные файлы и публичные ссылки обрабатываются последовательно одним worker-потоком.</p>
+              <h2 data-i18n="transcriptionTitle"></h2>
+              <p class="section-note" data-i18n="transcriptionNote"></p>
             </div>
           </div>
 
-          <form id="queueAddForm" class="queue-add-form">
-            <label class="field file-field" for="queueFileInput">
-              <span>Аудио- и видеофайлы</span>
-              <input
-                id="queueFileInput"
-                type="file"
-                multiple
-                accept=".wav,.mp3,.m4a,.mp4,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,video/mp4"
-                title="Выберите несколько локальных файлов. Для .mp4 транскрибируется только аудиодорожка."
-              />
-            </label>
-            <button id="queueAddButton" type="submit">Добавить файлы в очередь</button>
-          </form>
-          <form id="queueUrlForm" class="queue-url-form">
-            <label class="field" for="queueUrlInput">
-              <span data-i18n="queueUrls">Добавить ссылки в очередь, по одной на строку</span>
-              <textarea id="queueUrlInput" rows="4" placeholder="https://..."></textarea>
-            </label>
-            <button id="queueUrlAddButton" type="submit" data-i18n="addUrls">Добавить ссылки в очередь</button>
-          </form>
-          <p id="queueSettingsSummary" class="section-note">Очередь будет обработана с текущими настройками.</p>
-          <p class="section-note" data-i18n="queueFrozen">Настройки очереди фиксируются в момент запуска. Во время обработки изменить модель или устройство нельзя.</p>
+          <div class="unified-transcription-grid">
+            <section id="transcriptionSources" class="transcription-column">
+              <div class="subsection-heading">
+                <h3 data-i18n="sourcesTitle"></h3>
+                <p data-i18n="sourcesNote"></p>
+              </div>
+              <div id="recordingTranscribeActions" class="source-group">
+                <h4 data-i18n="latestRecordingsTitle"></h4>
+                <div class="source-actions">
+                  <button id="transcribeMicRecordingButton" type="button" disabled data-i18n="addLatestMic"></button>
+                  <button id="transcribeSystemRecordingButton" type="button" disabled data-i18n="addLatestSystem"></button>
+                  <button id="transcribeAllRecordingsButton" type="button" disabled data-i18n="addLatestBoth"></button>
+                </div>
+              </div>
 
-          <div class="actions">
-            <button id="queueStartButton" type="button">Запустить очередь</button>
-            <button id="queueStopButton" type="button" disabled>Остановить после текущей задачи</button>
-            <button id="queueClearButton" type="button">Очистить очередь</button>
-            <button id="queueRetryButton" type="button">Повторить ошибочные задачи</button>
+              <form id="transcribeForm" class="source-group">
+                <h4 data-i18n="selectedFileTitle"></h4>
+                <input id="audioFileInput" class="native-file-input" type="file" accept=".wav,.mp3,.m4a,.mp4,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,video/mp4" />
+                <div class="file-picker-row">
+                  <button id="audioFilePickerButton" type="button" class="file-picker-button" data-i18n="chooseFile"></button>
+                  <span id="audioFilePickerText" class="file-picker-text" data-i18n="noFileSelected"></span>
+                </div>
+                <button id="transcribeButton" type="submit" data-i18n="addSelectedFile"></button>
+              </form>
+
+              <form id="queueAddForm" class="source-group">
+                <h4 data-i18n="multipleFilesTitle"></h4>
+                <input id="queueFileInput" class="native-file-input" type="file" multiple accept=".wav,.mp3,.m4a,.mp4,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,video/mp4" />
+                <div class="file-picker-row">
+                  <button id="queueFilePickerButton" type="button" class="file-picker-button" data-i18n="chooseFiles"></button>
+                  <span id="queueFilePickerText" class="file-picker-text" data-i18n="noFilesSelected"></span>
+                </div>
+                <button id="queueAddButton" type="submit" data-i18n="addFiles"></button>
+              </form>
+
+              <form id="queueUrlForm" class="source-group queue-url-form">
+                <label class="field" for="queueUrlInput">
+                  <span data-i18n="queueUrls"></span>
+                  <textarea id="queueUrlInput" rows="4" data-i18n-placeholder="urlPlaceholder"></textarea>
+                </label>
+                <p id="urlLimitations" class="section-note" data-i18n="urlLimitations"></p>
+                <button id="queueUrlAddButton" type="submit" data-i18n="addUrls"></button>
+              </form>
+            </section>
+
+            <section id="globalQueuePanel" class="transcription-column queue-panel">
+              <div class="subsection-heading">
+                <h3 data-i18n="globalQueueTitle"></h3>
+                <p data-i18n="globalQueueNote"></p>
+              </div>
+              <p id="queueSettingsSummary" class="section-note"></p>
+              <p class="section-note" data-i18n="queueFrozen"></p>
+              <div class="actions queue-actions">
+                <button id="queueStartButton" type="button" data-i18n="startTranscription"></button>
+                <button id="queueClearButton" type="button" data-i18n="clearGlobalQueue"></button>
+                <button id="queueStopButton" type="button" disabled data-i18n="stopAfterCurrent"></button>
+                <button id="queueRetryButton" type="button" data-i18n="retryFailed"></button>
+              </div>
+              <output id="queueOutput" class="output"></output>
+              <ul id="queueList" class="queue-list"></ul>
+            </section>
           </div>
 
-          <div class="queue-progress-grid">
-            <div><span>Всего задач</span><strong id="queueTotal">0</strong></div>
-            <div><span>Готово</span><strong id="queueCompleted">0</strong></div>
-            <div><span>Ошибок</span><strong id="queueFailed">0</strong></div>
-            <div><span>Ожидает</span><strong id="queuePending">0</strong></div>
-            <div><span>Выполняется</span><strong id="queueCurrent">нет</strong></div>
-            <div><span>Прошло времени</span><strong id="queueElapsed">00:00:00</strong></div>
-            <div><span>Примерно осталось</span><strong id="queueEta">Оценка появится после обработки первых файлов.</strong></div>
+          <div id="runtimeDetails" class="runtime-grid">
+            <div><span data-i18n="modelShort"></span><strong id="runtimeModel">small</strong></div>
+            <div><span data-i18n="deviceShort"></span><strong id="runtimeDevice">auto</strong></div>
+            <div><span data-i18n="computeTypeShort"></span><strong id="runtimeCompute">auto</strong></div>
+            <div><span data-i18n="speed"></span><strong id="runtimeSpeed" data-i18n="notAvailable"></strong></div>
           </div>
-          <label class="queue-progress-label" for="queueProgress">
-            <span id="queueProgressText">Очередь выполнена на 0%</span>
-            <progress id="queueProgress" max="100" value="0"></progress>
-          </label>
-          <output id="queueOutput" class="output"></output>
-          <ul id="queueList" class="queue-list"></ul>
+          <div id="queueMetricsProgress">
+            <div id="queueMetrics" class="queue-progress-grid">
+              <div><span data-i18n="totalTasks"></span><strong id="queueTotal">0</strong></div>
+              <div><span data-i18n="completed"></span><strong id="queueCompleted">0</strong></div>
+              <div><span data-i18n="errors"></span><strong id="queueFailed">0</strong></div>
+              <div><span data-i18n="cancelled"></span><strong id="queueCancelled">0</strong></div>
+              <div><span data-i18n="pending"></span><strong id="queuePending">0</strong></div>
+              <div><span data-i18n="running"></span><strong id="queueCurrent" data-i18n="none"></strong></div>
+              <div><span data-i18n="elapsed"></span><strong id="queueElapsed">00:00:00</strong></div>
+              <div><span data-i18n="estimatedRemaining"></span><strong id="queueEta" data-i18n="queueEtaWaiting"></strong></div>
+            </div>
+            <label class="queue-progress-label" for="queueProgress">
+              <span id="queueProgressText"></span>
+              <progress id="queueProgress" max="100" value="0"></progress>
+            </label>
+          </div>
+          <div id="operationOverlay" class="operation-banner" hidden>
+            <div class="operation-spinner" aria-hidden="true"></div>
+            <div>
+              <h3 id="operationOverlayTitle" data-i18n="operation"></h3>
+              <p id="operationOverlayText" data-i18n="wait"></p>
+            </div>
+          </div>
+          <output id="transcribeOutput" class="output"></output>
+          <details id="transcribeTechnicalDetails" class="technical-details" hidden>
+            <summary data-i18n="technicalDetails"></summary>
+            <pre id="transcribeTechnicalText"></pre>
+          </details>
+          <output id="benchmarkOutput" class="output compact"></output>
+          <label class="result-label" for="transcriptText" data-i18n="latestResult"></label>
+          <textarea id="transcriptText" readonly spellcheck="false" data-i18n-aria-label="latestResult"></textarea>
         </section>
 
         <section id="benchmarkSection" class="workspace-section">
           <div class="section-heading">
             <div>
-              <h2 data-i18n="benchmarkTitle">Бенчмарк производительности</h2>
-              <p class="section-note" data-i18n="benchmarkNote">Cold Run включает загрузку модели. Warm Run переиспользует модель после успешного Cold Run для того же файла, модели и устройства.</p>
+              <h2 data-i18n="benchmarkTitle"></h2>
+              <p class="section-note" data-i18n="benchmarkNote"></p>
             </div>
           </div>
-          <form id="benchmarkUploadForm" class="queue-add-form">
-            <label class="field file-field" for="benchmarkFileInput">
-              <span data-i18n="benchmarkFile">Файл для benchmark</span>
-              <input id="benchmarkFileInput" type="file" accept=".wav,.mp3,.m4a,.mp4,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,video/mp4" />
-            </label>
-            <button id="benchmarkUploadButton" type="submit" data-i18n="benchmarkPrepare">Подготовить файл</button>
+          <form id="benchmarkUploadForm" class="source-group">
+            <h4 data-i18n="benchmarkFile"></h4>
+            <input id="benchmarkFileInput" class="native-file-input" type="file" accept=".wav,.mp3,.m4a,.mp4,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,video/mp4" />
+            <div class="file-picker-row">
+              <button id="benchmarkFilePickerButton" type="button" class="file-picker-button" data-i18n="chooseFile"></button>
+              <span id="benchmarkFilePickerText" class="file-picker-text" data-i18n="noFileSelected"></span>
+            </div>
+            <button id="benchmarkUploadButton" type="submit" data-i18n="benchmarkPrepare"></button>
           </form>
           <output id="benchmarkStatusOutput" class="output"></output>
           <div class="benchmark-grid">
             <section class="benchmark-card">
               <h3>CPU</h3>
               <div class="actions">
-                <button type="button" data-benchmark-device="cpu" data-benchmark-mode="cold">Benchmark Cold Run</button>
-                <button type="button" data-benchmark-device="cpu" data-benchmark-mode="warm">Benchmark Warm Run</button>
+                <button type="button" data-benchmark-device="cpu" data-benchmark-mode="cold" data-i18n="benchmarkColdRun"></button>
+                <button type="button" data-benchmark-device="cpu" data-benchmark-mode="warm" data-i18n="benchmarkWarmRun"></button>
               </div>
-              <pre id="benchmarkCpuResult" data-i18n="noResults">Результатов пока нет.</pre>
+              <pre id="benchmarkCpuResult" data-i18n="noResults"></pre>
             </section>
             <section class="benchmark-card">
               <h3>GPU / CUDA</h3>
               <div class="actions">
-                <button type="button" data-benchmark-device="cuda" data-benchmark-mode="cold">Benchmark Cold Run</button>
-                <button type="button" data-benchmark-device="cuda" data-benchmark-mode="warm">Benchmark Warm Run</button>
+                <button type="button" data-benchmark-device="cuda" data-benchmark-mode="cold" data-i18n="benchmarkColdRun"></button>
+                <button type="button" data-benchmark-device="cuda" data-benchmark-mode="warm" data-i18n="benchmarkWarmRun"></button>
               </div>
-              <pre id="benchmarkCudaResult" data-i18n="noResults">Результатов пока нет.</pre>
+              <pre id="benchmarkCudaResult" data-i18n="noResults"></pre>
             </section>
           </div>
         </section>
 
-        <section class="workspace-section">
+        <section id="filesSection" class="workspace-section">
           <div class="section-heading">
             <div>
-              <h2>Файлы</h2>
-              <p id="diskFree" class="section-note" data-i18n="diskChecking">Диск: проверяю свободное место...</p>
+              <h2 data-i18n="files"></h2>
+              <p id="diskFree" class="section-note" data-i18n="diskChecking"></p>
             </div>
           </div>
-
           <div class="storage-grid">
             <div class="storage-block">
               <h3>recordings</h3>
-              <p>Аудиозаписи сохраняются в:</p>
+              <p data-i18n="recordingsSavedIn"></p>
               <code id="recordingsPath">C:\Python\LocalAudioTranscriber\data\recordings</code>
-              <button
-                id="openRecordingsButton"
-                type="button"
-                title="Открывает папку data\\recordings в Windows Explorer."
-              >
-                Открыть папку recordings
-              </button>
-              <h4>Последние 5 файлов</h4>
+              <button id="openRecordingsButton" type="button" data-i18n="openRecordings"></button>
+              <h4 data-i18n="latestFiles"></h4>
               <ul id="recordingsFileList" class="file-list"></ul>
             </div>
-
             <div class="storage-block">
               <h3>transcripts</h3>
-              <p>Транскрипты сохраняются в:</p>
+              <p data-i18n="transcriptsSavedIn"></p>
               <code id="transcriptsPath">C:\Python\LocalAudioTranscriber\data\transcripts</code>
-              <button
-                id="openTranscriptsButton"
-                type="button"
-                title="Открывает папку data\\transcripts в Windows Explorer."
-              >
-                Открыть папку transcripts
-              </button>
-              <h4>Последние 5 файлов</h4>
+              <button id="openTranscriptsButton" type="button" data-i18n="openTranscripts"></button>
+              <h4 data-i18n="latestFiles"></h4>
               <ul id="transcriptsFileList" class="file-list"></ul>
             </div>
           </div>
         </section>
 
-        <section class="workspace-section">
+        <section id="helpSection" class="workspace-section">
           <details class="help-block">
-            <summary>Помощь: если звук не записывается или транскрибация не начинается</summary>
-
-            <h3>Если микрофон не работает</h3>
-            <ol>
-              <li>Откройте Параметры Windows → Конфиденциальность и безопасность → Микрофон.</li>
-              <li>Включите доступ к микрофону.</li>
-              <li>Включите доступ к микрофону для классических приложений.</li>
-              <li>Разрешите доступ к микрофону для python.exe, powershell.exe или cmd.exe в антивирусе.</li>
-              <li>После изменения разрешений перезапустите приложение.</li>
-              <li>Выберите правильный микрофон в списке устройств.</li>
-              <li>Проверьте, двигается ли индикатор уровня микрофона.</li>
-            </ol>
-
-            <h3>Если системный звук не записывается</h3>
-            <ol>
-              <li>Убедитесь, что звук реально воспроизводится в Windows.</li>
-              <li>Выберите output-устройство, через которое идет звук: динамики, наушники, монитор, Bluetooth-устройство.</li>
-              <li>Если индикатор системного звука не двигается, попробуйте другое output-устройство.</li>
-              <li>Проверьте громкость Windows и громкость приложения-источника.</li>
-              <li>На корпоративных ноутбуках системный звук может блокироваться политиками безопасности.</li>
-            </ol>
-
-            <h3>Если антивирус показывает предупреждение</h3>
-            <ol>
-              <li>Разрешите приложению доступ к микрофону.</li>
-              <li>Разрешите python.exe, powershell.exe или cmd.exe.</li>
-              <li>Если доступ был заблокирован, перезапустите приложение.</li>
-              <li>Иногда после блокировки требуется перезагрузка компьютера.</li>
-            </ol>
-
-            <h3>Если транскрибация долго не начинается</h3>
-            <ol>
-              <li>При первом запуске модель Whisper может скачиваться несколько минут.</li>
-              <li>Проверьте интернет.</li>
-              <li>Проверьте доступ к Hugging Face, если модель скачивается впервые.</li>
-              <li>На CPU транскрибация может быть медленнее, чем на GPU.</li>
-              <li>Если выбрана тяжелая модель medium или large-v3, попробуйте small.</li>
-              <li>Проверьте логи в data\logs\app.log.</li>
-            </ol>
-
-            <h3>Если нет NVIDIA GPU</h3>
-            <p>Это не ошибка. Приложение работает на CPU. Для CPU-установки используйте requirements-cpu.txt. Для GPU-ускорения нужна NVIDIA GPU и установка requirements-gpu.txt.</p>
-
-            <h3 id="legalUsage">Правовое и этичное использование</h3>
-            <p>Используйте приложение только для аудио, видео и файлов, к которым у вас есть законный доступ.</p>
-            <p>Не используйте приложение для скрытой записи чужих разговоров, перехвата сообщений, обхода ограничений доступа или распространения чужих материалов без разрешения правообладателя.</p>
-
-            <p data-i18n="tourRepeat">Обучение можно пройти повторно в любой момент по кнопке в верхней части окна.</p>
+            <summary data-i18n="helpSummary"></summary>
+            <h3 data-i18n="helpMicTitle"></h3>
+            <p data-i18n="helpMicText"></p>
+            <h3 data-i18n="helpSystemTitle"></h3>
+            <p data-i18n="helpSystemText"></p>
+            <h3 data-i18n="helpModelTitle"></h3>
+            <p data-i18n="helpModelText"></p>
+            <h3 id="legalUsage" data-i18n="legalTitle"></h3>
+            <p data-i18n="legalText"></p>
+            <p data-i18n="tourRepeat"></p>
           </details>
         </section>
       </section>
     </main>
 
     <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
-    <div id="operationOverlay" class="operation-overlay" hidden>
-      <section class="operation-card" role="status" aria-live="polite">
-        <div class="operation-spinner" aria-hidden="true"></div>
-        <h2 id="operationOverlayTitle" data-i18n="operation">Выполняется операция</h2>
-        <p id="operationOverlayText" data-i18n="wait">Пожалуйста, дождитесь завершения.</p>
-      </section>
-    </div>
     <script src="/static/i18n.js"></script>
     <script src="/static/tour.js"></script>
     <script src="/static/app.js"></script>

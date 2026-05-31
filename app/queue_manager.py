@@ -19,6 +19,7 @@ ACTIVE_STATUSES = {"downloading", "downloaded", "analyzing", "extracting_audio",
 class QueueFile:
     source_path: Path
     source_filename: str
+    source_type: str = "local_file"
 
 
 @dataclass(frozen=True)
@@ -77,7 +78,7 @@ class QueueManager:
                 self._items.append(
                     {
                         "index": start_index + offset,
-                        "source_type": "local_file",
+                        "source_type": queue_file.source_type,
                         "source_path": str(queue_file.source_path),
                         "source_filename": queue_file.source_filename,
                         "status": "pending",

@@ -195,6 +195,17 @@ class QueueManagerTests(unittest.TestCase):
         self.assertEqual("youtube", status["items"][1]["source_platform"])
         self.assertEqual(str(downloaded.source_path), status["items"][1]["downloaded_audio_path"])
 
+    def test_preserves_recording_source_type(self) -> None:
+        manager = self.make_manager(processor=lambda _item, _model, _device: {})
+        status = self.track_job(manager.add_files([
+            QueueFile(
+                source_path=self.make_file("mic.wav").source_path,
+                source_filename="mic.wav",
+                source_type="mic",
+            )
+        ]))
+        self.assertEqual("mic", status["items"][0]["source_type"])
+
     def test_url_download_error_does_not_stop_queue(self) -> None:
         processed: list[str] = []
 

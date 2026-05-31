@@ -24,6 +24,8 @@ const transcribeSystemRecordingButton = document.querySelector("#transcribeSyste
 const transcribeAllRecordingsButton = document.querySelector("#transcribeAllRecordingsButton");
 const transcribeForm = document.querySelector("#transcribeForm");
 const audioFileInput = document.querySelector("#audioFileInput");
+const audioFilePickerButton = document.querySelector("#audioFilePickerButton");
+const audioFilePickerText = document.querySelector("#audioFilePickerText");
 const whisperModelSelect = document.querySelector("#whisperModelSelect");
 const whisperDeviceSelect = document.querySelector("#whisperDeviceSelect");
 const deviceAvailabilityOutput = document.querySelector("#deviceAvailabilityOutput");
@@ -52,6 +54,8 @@ const appVersion = document.querySelector("#appVersion");
 const recordingTimer = document.querySelector("#recordingTimer");
 const queueAddForm = document.querySelector("#queueAddForm");
 const queueFileInput = document.querySelector("#queueFileInput");
+const queueFilePickerButton = document.querySelector("#queueFilePickerButton");
+const queueFilePickerText = document.querySelector("#queueFilePickerText");
 const queueAddButton = document.querySelector("#queueAddButton");
 const queueStartButton = document.querySelector("#queueStartButton");
 const queueStopButton = document.querySelector("#queueStopButton");
@@ -60,6 +64,7 @@ const queueRetryButton = document.querySelector("#queueRetryButton");
 const queueTotal = document.querySelector("#queueTotal");
 const queueCompleted = document.querySelector("#queueCompleted");
 const queueFailed = document.querySelector("#queueFailed");
+const queueCancelled = document.querySelector("#queueCancelled");
 const queuePending = document.querySelector("#queuePending");
 const queueCurrent = document.querySelector("#queueCurrent");
 const queueElapsed = document.querySelector("#queueElapsed");
@@ -78,6 +83,8 @@ const operationOverlayTitle = document.querySelector("#operationOverlayTitle");
 const operationOverlayText = document.querySelector("#operationOverlayText");
 const benchmarkUploadForm = document.querySelector("#benchmarkUploadForm");
 const benchmarkFileInput = document.querySelector("#benchmarkFileInput");
+const benchmarkFilePickerButton = document.querySelector("#benchmarkFilePickerButton");
+const benchmarkFilePickerText = document.querySelector("#benchmarkFilePickerText");
 const benchmarkUploadButton = document.querySelector("#benchmarkUploadButton");
 const benchmarkStatusOutput = document.querySelector("#benchmarkStatusOutput");
 const benchmarkCpuResult = document.querySelector("#benchmarkCpuResult");
@@ -101,6 +108,7 @@ let benchmarkSourceId = null;
 let overlayOwner = null;
 let transcriptionPhase = null;
 let activeRuntimeModel = null;
+let lastLoadedQueueTranscriptPath = null;
 
 function t(key, variables = {}) {
   return window.LATI18N?.t(key, variables) || key;
@@ -175,6 +183,22 @@ function currentMode() {
   return recordingModeSelect.value;
 }
 
+function updateFilePickerText(input, target, multiple = false) {
+  const files = Array.from(input.files || []);
+  if (!files.length) {
+    target.textContent = t(multiple ? "noFilesSelected" : "noFileSelected");
+    return;
+  }
+  target.textContent = multiple
+    ? t("selectedFilesCount", { count: files.length })
+    : files[0].name;
+}
+
+function resetFilePicker(input, target, multiple = false) {
+  input.value = "";
+  updateFilePickerText(input, target, multiple);
+}
+
 function modeUsesMic() {
   return currentMode() === "mic" || currentMode() === "both";
 }
@@ -197,7 +221,7 @@ function setRecordingUi(recording) {
   refreshDevicesButton.disabled = recording;
 
   if (!isTranscribing) {
-    setAppState(recording ? "Идет запись" : "Готово к записи", recording ? "active" : "idle");
+    setAppState(t(recording ? "recordingActive" : "readyToRecord"), recording ? "active" : "idle");
   }
 }
 
@@ -211,7 +235,7 @@ async function requestJson(url, options = {}) {
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    const message = payload?.detail?.message || payload?.message || "Ошибка запроса.";
+    const message = payload?.detail?.message || payload?.message || t("requestError");
     const technicalDetails = payload?.detail?.technical_details || payload?.technical_details || "";
     throw new ApiError(message, technicalDetails);
   }
@@ -255,8 +279,8 @@ function syncRecordingTimer(status) {
 function updateLevel(level, target, kind) {
   const levelPercent = Math.max(0, Math.min(100, Number(level.level || 0)));
   target.fill.style.width = `${levelPercent}%`;
-  target.rms.textContent = `RMS: ${Number(level.rms || 0).toFixed(6)}`;
-  target.peak.textContent = `Peak: ${Number(level.peak || 0).toFixed(6)}`;
+  target.rms.textContent = t("rmsValue", { value: Number(level.rms || 0).toFixed(6) });
+  target.peak.textContent = t("peakValue", { value: Number(level.peak || 0).toFixed(6) });
 
   const message = formatLevelMessage(kind, level);
   const details = level.warning ? `${message}\n${level.warning}` : message;
@@ -265,23 +289,17 @@ function updateLevel(level, target, kind) {
 
 function resetLevel(target, message, type = "warning") {
   target.fill.style.width = "0%";
-  target.rms.textContent = "RMS: 0.000000";
-  target.peak.textContent = "Peak: 0.000000";
+  target.rms.textContent = t("rmsZero");
+  target.peak.textContent = t("peakZero");
   setOutput(target.warning, message, type);
 }
 
 function formatLevelMessage(kind, level) {
-  const recordingPrefix = level.recording ? "Идет запись." : "Запись не ведется.";
-
-  if (kind === "mic") {
-    return level.has_signal
-      ? `${recordingPrefix} Микрофон слышит звук.`
-      : `${recordingPrefix} Микрофон не слышит звук.`;
-  }
-
-  return level.has_signal
-    ? `${recordingPrefix} Системный звук слышен.`
-    : `${recordingPrefix} Системный звук не слышен.`;
+  const prefix = t(level.recording ? "levelRecording" : "levelIdle");
+  const state = t(kind === "mic"
+    ? (level.has_signal ? "micSignalPresent" : "micSignalMissing")
+    : (level.has_signal ? "systemSignalPresent" : "systemSignalMissing"));
+  return `${prefix} ${state}`;
 }
 
 function micLevelTarget() {
@@ -307,7 +325,7 @@ async function loadDevices() {
   const previousOutputValue = outputDeviceSelect.value;
   micDeviceSelect.innerHTML = "";
   outputDeviceSelect.innerHTML = "";
-  setOutput(recordingOutput, "Обновляю список устройств...");
+  setOutput(recordingOutput, t("refreshingDevices"));
 
   try {
     const [inputResult, outputResult] = await Promise.all([
@@ -317,7 +335,7 @@ async function loadDevices() {
 
     fillMicDevices(inputResult, previousMicValue);
     fillOutputDevices(outputResult, previousOutputValue);
-    setOutput(recordingOutput, "Список устройств обновлен.");
+    setOutput(recordingOutput, t("devicesUpdated"));
   } catch (error) {
     setOutput(recordingOutput, error.message, "error");
   }
@@ -329,7 +347,7 @@ function fillMicDevices(result, previousValue) {
     option.value = "";
     option.disabled = true;
     option.selected = true;
-    option.textContent = "Микрофоны не найдены";
+    option.textContent = t("microphonesNotFound");
     micDeviceSelect.append(option);
     return;
   }
@@ -337,7 +355,7 @@ function fillMicDevices(result, previousValue) {
   for (const device of result.devices) {
     const option = document.createElement("option");
     option.value = String(device.id);
-    const defaultText = device.is_default ? " по умолчанию" : "";
+    const defaultText = device.is_default ? ` ${t("defaultSuffix")}` : "";
     option.textContent = `${device.name} [${device.input_channels} ch, ${device.default_samplerate} Hz]${defaultText}`;
     micDeviceSelect.append(option);
   }
@@ -357,7 +375,7 @@ function fillOutputDevices(result, previousValue) {
     option.value = "";
     option.disabled = true;
     option.selected = true;
-    option.textContent = "Output-устройства не найдены";
+    option.textContent = t("outputDevicesNotFound");
     outputDeviceSelect.append(option);
     return;
   }
@@ -365,7 +383,7 @@ function fillOutputDevices(result, previousValue) {
   for (const device of result.devices) {
     const option = document.createElement("option");
     option.value = String(device.id);
-    const defaultText = device.is_default_output ? " по умолчанию" : "";
+    const defaultText = device.is_default_output ? ` ${t("defaultSuffix")}` : "";
     option.textContent = `${device.name} [${device.channels} ch, ${device.default_samplerate} Hz, ${device.api_name}]${defaultText}`;
     outputDeviceSelect.append(option);
   }
@@ -420,7 +438,7 @@ async function refreshStatus() {
     updateRecordingTranscribeActions(lastRecordings);
 
     if (isTranscribing && !queueActive && !benchmarkActive) {
-      setAppState("Транскрибация выполняется", "active");
+      setAppState(t("transcriptionRunning"), "active");
       const downloading = transcription.phase === "loading_model" && !modelStatusByName.get(model)?.local;
       showOperation(
         "transcription",
@@ -434,7 +452,7 @@ async function refreshStatus() {
     const ffmpeg = status.ffmpeg_found ? t("ffmpegFound") : t("ffmpegMissing");
     systemStatus.textContent = `${availabilityText(status)}; ${ffmpeg}`;
   } catch (error) {
-    systemStatus.textContent = error.message;
+    systemStatus.textContent = translateUiText(error.message);
   }
 }
 
@@ -460,7 +478,7 @@ async function refreshMicLevel() {
   }
 
   if (!hasSelectableDevice(micDeviceSelect)) {
-    resetLevel(micLevelTarget(), "Устройство микрофона не выбрано.");
+    resetLevel(micLevelTarget(), t("micDeviceNotSelected"));
     return;
   }
 
@@ -473,7 +491,7 @@ async function refreshMicLevel() {
   } catch (error) {
     resetLevel(
       micLevelTarget(),
-      `Нет доступа к микрофону. Проверьте разрешения Windows и антивирус.\n${error.message}`,
+      `${t("micAccessError")}\n${error.message}`,
       "error",
     );
   } finally {
@@ -487,7 +505,7 @@ async function refreshSystemLevel() {
   }
 
   if (!hasSelectableDevice(outputDeviceSelect)) {
-    resetLevel(systemLevelTarget(), "Устройство системного звука не выбрано.");
+    resetLevel(systemLevelTarget(), t("systemDeviceNotSelected"));
     return;
   }
 
@@ -500,7 +518,7 @@ async function refreshSystemLevel() {
   } catch (error) {
     resetLevel(
       systemLevelTarget(),
-      `Нет доступа к системному звуку. Проверьте выбранное устройство вывода.\n${error.message}`,
+      `${t("systemAccessError")}\n${error.message}`,
       "error",
     );
   } finally {
@@ -509,19 +527,19 @@ async function refreshSystemLevel() {
 }
 
 function formatRecordingDiagnostics(diagnostics) {
-  const source = diagnostics.source_type === "system" ? "Системный звук" : "Микрофон";
+  const source = t(diagnostics.source_type === "system" ? "systemAudio" : "microphone");
   const device = diagnostics.source_type === "system"
     ? `${diagnostics.output_device_name} (${diagnostics.output_device_id ?? "default"})`
     : `${diagnostics.device_name} (${diagnostics.device_id ?? "default"})`;
 
   const lines = [
     `${source}`,
-    `Файл WAV: ${diagnostics.audio_file}`,
-    `Диагностика JSON: ${diagnostics.diagnostic_file}`,
-    `Устройство: ${device}`,
-    `Длительность: ${diagnostics.duration_sec} сек`,
-    `RMS: ${Number(diagnostics.rms).toFixed(6)}`,
-    `Peak: ${Number(diagnostics.peak).toFixed(6)}`,
+    t("recordingDiagnosticWav", { path: diagnostics.audio_file }),
+    t("recordingDiagnosticJson", { path: diagnostics.diagnostic_file }),
+    t("recordingDiagnosticDevice", { device }),
+    t("recordingDiagnosticDuration", { value: diagnostics.duration_sec }),
+    t("rmsValue", { value: Number(diagnostics.rms).toFixed(6) }),
+    t("peakValue", { value: Number(diagnostics.peak).toFixed(6) }),
   ];
 
   if (diagnostics.warnings?.length) {
@@ -534,22 +552,22 @@ function formatRecordingDiagnostics(diagnostics) {
 function formatAllDiagnostics(diagnosticsList, errors = []) {
   const chunks = diagnosticsList.map(formatRecordingDiagnostics);
   if (errors.length) {
-    chunks.push(`Ошибки: ${errors.join("; ")}`);
+    chunks.push(t("diagnosticErrors", { value: errors.join("; ") }));
   }
   return chunks.join("\n\n");
 }
 
 function formatBenchmark(benchmark, benchmarkPath) {
-  const speed = benchmark.realtime_factor ? `${benchmark.realtime_factor}x realtime` : "н/д";
+  const speed = benchmark.realtime_factor ? `${benchmark.realtime_factor}x realtime` : t("notAvailable");
   return [
-    `TXT: ${benchmark.transcript_file}`,
-    `JSON: ${benchmarkPath}`,
-    `Модель: ${benchmark.model}`,
-    `Устройство: ${benchmark.device}`,
-    `Compute type: ${benchmark.compute_type}`,
-    `Длительность аудио: ${benchmark.audio_duration_sec ?? "н/д"} сек`,
-    `Время обработки: ${benchmark.transcribe_time_sec} сек`,
-    `Скорость: ${speed}`,
+    t("benchmarkTxt", { value: benchmark.transcript_file }),
+    t("benchmarkJson", { value: benchmarkPath }),
+    t("benchmarkModel", { value: benchmark.model }),
+    t("benchmarkDevice", { value: benchmark.device }),
+    t("benchmarkComputeType", { value: benchmark.compute_type }),
+    t("benchmarkAudioDuration", { value: benchmark.audio_duration_sec ?? t("notAvailable") }),
+    t("benchmarkProcessingTime", { value: benchmark.transcribe_time_sec }),
+    t("benchmarkSpeed", { value: speed }),
   ].join("\n");
 }
 
@@ -570,112 +588,90 @@ function updateRecordingTranscribeActions(recordings) {
   lastRecordings = recordings || [];
   const micRecording = lastRecordings.find((item) => item.source_type === "mic");
   const systemRecording = lastRecordings.find((item) => item.source_type === "system");
+  const blocked = isTranscribing || queueActive || benchmarkActive;
   recordingTranscribeActions.dataset.empty = String(lastRecordings.length === 0);
-  transcribeMicRecordingButton.disabled = !micRecording || isTranscribing || queueActive;
-  transcribeSystemRecordingButton.disabled = !systemRecording || isTranscribing || queueActive;
-  transcribeAllRecordingsButton.disabled = lastRecordings.length < 2 || isTranscribing || queueActive;
+  transcribeMicRecordingButton.disabled = !micRecording || blocked;
+  transcribeSystemRecordingButton.disabled = !systemRecording || blocked;
+  transcribeAllRecordingsButton.disabled = lastRecordings.length < 2 || blocked;
 }
 
-async function transcribeRecordedDiagnostics(diagnostics) {
-  const result = await requestJson("/api/transcribe/file", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      file_path: diagnostics.audio_file,
-      source_type: diagnostics.source_type,
-      model: selectedModel(),
-      device: selectedDevice(),
-    }),
-  });
-
-  transcriptText.value = result.text;
-  updateRuntimeDetails(result.benchmark);
-  setOutput(transcribeOutput, `Текст сохранен: ${result.transcript_path}`, "success");
-  setOutput(benchmarkOutput, formatBenchmark(result.benchmark, result.benchmark_path), "success");
-  await refreshStatus();
-  await refreshModelStatuses();
-  await refreshStorage();
-  return result;
-}
-
-async function transcribeRecordingByType(sourceType) {
+async function addRecordingByType(sourceType) {
   const diagnostics = lastRecordings.find((item) => item.source_type === sourceType);
   if (!diagnostics) {
-    setOutput(transcribeOutput, "Файл записи не найден.", "error");
+    setOutput(queueOutput, t("recordingFileNotFound"), "error");
     return;
   }
-
-  await runTranscription(async () => {
-    setOutput(transcribeOutput, "Транскрибирую записанный файл...");
-    setOutput(benchmarkOutput, "");
-    await transcribeRecordedDiagnostics(diagnostics);
-  });
+  await addRecordingsToQueue([diagnostics]);
 }
 
-async function transcribeAllRecordings() {
+async function addAllRecordings() {
   if (lastRecordings.length < 2) {
-    setOutput(transcribeOutput, "Для этого режима нужно два файла записи.", "error");
+    setOutput(queueOutput, t("twoRecordingsRequired"), "error");
     return;
   }
-
-  await runTranscription(async () => {
-    setOutput(transcribeOutput, "Транскрибирую оба файла по очереди...");
-    setOutput(benchmarkOutput, "");
-    const summaries = [];
-    const texts = [];
-
-    for (const [index, diagnostics] of lastRecordings.entries()) {
-      showOperation(
-        "transcription",
-        t("transcribing"),
-        `${index + 1} / ${lastRecordings.length}: ${diagnostics.source_type}\n${selectedModel()} · ${selectedDevice()}\n${t("wait")}`,
-      );
-      const result = await transcribeRecordedDiagnostics(diagnostics);
-      summaries.push(`${diagnostics.source_type}: ${result.transcript_path}`);
-      texts.push(`### ${diagnostics.source_type}\n${result.text}`);
-    }
-
-    transcriptText.value = texts.join("\n\n");
-    setOutput(transcribeOutput, summaries.join("\n"), "success");
-  });
+  await addRecordingsToQueue(lastRecordings);
 }
 
-async function runTranscription(callback) {
-  warnAboutSelectedModelDownload();
-  hideTechnicalDetails();
-  localTranscriptionActive = true;
-  isTranscribing = true;
-  transcribeButton.disabled = true;
-  transcribeMicRecordingButton.disabled = true;
-  transcribeSystemRecordingButton.disabled = true;
-  transcribeAllRecordingsButton.disabled = true;
-  setAppState("Транскрибация выполняется", "active");
-  const selectedStatus = modelStatusByName.get(selectedModel());
-  showOperation(
-    "transcription",
-    selectedStatus && !selectedStatus.local ? t("modelDownloading", { model: selectedModel() }) : t("transcribing"),
-    selectedStatus && !selectedStatus.local ? t("modelDownloadText") : `${selectedModel()} · ${selectedDevice()}\n${t("wait")}`,
-  );
-  updateLongOperationControls();
-  showToast("Транскрибация началась", "info");
-
+async function addRecordingsToQueue(recordings) {
   try {
-    await callback();
-    setAppState("Транскрибация завершена", "success");
-    showToast("Транскрибация завершена", "success");
+    const status = await requestJson("/api/queue/add-recordings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        files: recordings.map((item) => ({
+          file_path: item.audio_file,
+          source_type: item.source_type,
+        })),
+      }),
+    });
+    renderQueue(status);
+    const message = t("recordingsAdded", { count: recordings.length });
+    setOutput(queueOutput, message, "success");
+    showToast(message, "success");
   } catch (error) {
-    setAppState("Ошибка транскрибации", "error");
+    setOutput(queueOutput, error.message, "error");
+    showToast(error.message, "error");
+  }
+}
+
+async function addLocalFilesToQueue(files, input, pickerText, multiple = false) {
+  if (!files.length) {
+    setOutput(queueOutput, t(multiple ? "selectAtLeastOneFile" : "selectFile"), "error");
+    return;
+  }
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append("files", file);
+  }
+  try {
+    renderQueue(await requestJson("/api/queue/add-files", { method: "POST", body: formData }));
+    resetFilePicker(input, pickerText, multiple);
+    const message = t("filesAdded", { count: files.length });
+    setOutput(queueOutput, message, "success");
+    showToast(message, "success");
+  } catch (error) {
+    setOutput(queueOutput, error.message, "error");
+    showToast(error.message, "error");
+  }
+}
+
+async function loadTranscript(filePath, announce = false) {
+  try {
+    const result = await requestJson(`/api/transcripts/read?file_path=${encodeURIComponent(filePath)}`);
+    transcriptText.value = result.text || "";
+    lastLoadedQueueTranscriptPath = result.file_path;
+    if (announce) {
+      setOutput(transcribeOutput, t("transcriptLoaded", { name: result.file_path }), "success");
+    }
+  } catch (error) {
     setOutput(transcribeOutput, error.message, "error");
-    showTechnicalDetails(error.technicalDetails);
-    showToast("Ошибка транскрибации", "error");
-  } finally {
-    localTranscriptionActive = false;
-    isTranscribing = false;
-    transcribeButton.disabled = queueActive;
-    updateRecordingTranscribeActions(lastRecordings);
-    await refreshStatus();
-    hideOperation("transcription");
-    updateLongOperationControls();
+  }
+}
+
+function maybeLoadLatestQueueTranscript(status) {
+  const completedItem = [...(status.items || [])].reverse().find((item) => item.status === "completed" && item.transcript_path);
+  if (completedItem?.transcript_path && completedItem.transcript_path !== lastLoadedQueueTranscriptPath) {
+    loadTranscript(completedItem.transcript_path);
   }
 }
 
@@ -700,15 +696,15 @@ async function refreshStorage() {
     diskFree.textContent = t("diskFree", { value: storage.disk?.free_gb ?? "?" });
     recordingsPath.textContent = storage.recordings.path;
     transcriptsPath.textContent = storage.transcripts.path;
-    renderFileList(recordingsFileList, storage.recordings.files, "В папке recordings пока нет файлов.");
-    renderFileList(transcriptsFileList, storage.transcripts.files, "В папке transcripts пока нет файлов.");
+    renderFileList(recordingsFileList, storage.recordings.files, t("recordingsEmpty"));
+    renderFileList(transcriptsFileList, storage.transcripts.files, t("transcriptsEmpty"), true);
   } catch (error) {
     renderFileList(recordingsFileList, [], error.message);
     renderFileList(transcriptsFileList, [], error.message);
   }
 }
 
-function renderFileList(target, files, emptyMessage) {
+function renderFileList(target, files, emptyMessage, clickableTranscripts = false) {
   target.innerHTML = "";
 
   if (!files.length) {
@@ -721,9 +717,16 @@ function renderFileList(target, files, emptyMessage) {
 
   for (const file of files) {
     const item = document.createElement("li");
-    const name = document.createElement("span");
+    const name = clickableTranscripts && file.name.toLowerCase().endsWith(".txt")
+      ? document.createElement("button")
+      : document.createElement("span");
     const meta = document.createElement("small");
     name.textContent = file.name;
+    if (name instanceof HTMLButtonElement) {
+      name.type = "button";
+      name.className = "file-link";
+      name.addEventListener("click", () => loadTranscript(file.path, true));
+    }
     meta.textContent = `${formatDateTime(file.modified)} · ${file.size_mb} MB`;
     item.title = file.path;
     item.append(name, meta);
@@ -736,7 +739,7 @@ function formatDateTime(value) {
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return date.toLocaleString("ru-RU");
+  return date.toLocaleString(window.LATI18N?.getLanguage() === "en" ? "en-US" : "ru-RU");
 }
 
 async function openFolder(folder) {
@@ -757,7 +760,7 @@ async function refreshModelStatuses() {
     const payload = await requestJson("/api/models");
     applyModelStatuses(payload.models || []);
   } catch (error) {
-    modelAvailabilityOutput.textContent = `Не удалось проверить локальные модели: ${error.message}`;
+    modelAvailabilityOutput.textContent = t("modelStatusError", { message: translateUiText(error.message) });
     modelDownloadWarning.textContent = "";
     modelDownloadWarning.dataset.type = "warning";
   }
@@ -786,7 +789,7 @@ function updateModelAvailabilityUi() {
     return;
   }
 
-  modelAvailabilityOutput.textContent = `${status.name} — ${status.local ? t("modelLocal") : t("modelMissing")}. ${status.size_label}.`;
+  modelAvailabilityOutput.textContent = `${status.name} — ${status.local ? t("modelLocal") : t("modelMissing")}. ${translateUiText(status.size_label)}.`;
 
   if (status.local) {
     modelDownloadWarning.textContent = t("modelReady");
@@ -795,14 +798,14 @@ function updateModelAvailabilityUi() {
   }
 
   const heavyWarning = status.name === "medium"
-    ? "Medium: потребуется скачать примерно 1.5 GB."
+    ? t("mediumDownloadWarning")
     : status.name === "large-v3"
-      ? "Large-v3: потребуется скачать примерно 3.1 GB."
+      ? t("largeDownloadWarning")
       : "";
   modelDownloadWarning.textContent = [
     t("modelNeedsDownload"),
     heavyWarning,
-    heavyWarning ? "Убедитесь, что интернет работает и на диске достаточно свободного места." : "",
+    heavyWarning ? t("downloadRequirementsWarning") : "",
   ].filter(Boolean).join("\n");
   modelDownloadWarning.dataset.type = status.name === "medium" || status.name === "large-v3" ? "warning" : "info";
 }
@@ -810,7 +813,7 @@ function updateModelAvailabilityUi() {
 function warnAboutSelectedModelDownload() {
   const status = modelStatusByName.get(selectedModel());
   if (status && !status.local) {
-    showToast("Модель еще не скачана. Может потребоваться загрузка из интернета.", "warning");
+    showToast(t("modelDownloadToast"), "warning");
   }
 }
 
@@ -841,12 +844,15 @@ function renderQueue(status) {
   const total = Number(status.total_items || 0);
   const completed = Number(status.completed_items || 0);
   const failed = Number(status.failed_items || 0);
+  const cancelled = Number(status.cancelled_items || 0);
   const pending = Number(status.pending_items || 0);
   const progress = Number(status.progress_percent || 0);
+  const finished = completed + failed + cancelled;
 
   queueTotal.textContent = String(total);
   queueCompleted.textContent = String(completed);
   queueFailed.textContent = String(failed);
+  queueCancelled.textContent = String(cancelled);
   queuePending.textContent = String(pending);
   queueCurrent.textContent = status.current_file || t("none");
   queueElapsed.textContent = formatElapsed(status.elapsed_sec);
@@ -854,12 +860,12 @@ function renderQueue(status) {
     ? (translateUiText(status.eta_message) || t("queueEtaWaiting"))
     : formatElapsed(status.eta_sec);
   queueProgress.value = progress;
-  queueProgressText.textContent = t("queueProgress", { value: Math.round(progress) });
+  queueProgressText.textContent = t("queueProgress", { done: finished, total, value: Math.round(progress) });
 
   queueList.innerHTML = "";
   if (!status.items?.length) {
     const item = document.createElement("li");
-    item.innerHTML = "<span>Очередь пока пуста.</span>";
+    item.textContent = t("queueEmpty");
     queueList.append(item);
   } else {
     for (const queueItem of status.items) {
@@ -867,12 +873,22 @@ function renderQueue(status) {
       const name = document.createElement("span");
       const state = document.createElement("small");
       const sourceLabel = queueItem.source_type === "url"
-        ? `${queueItem.source_title || queueItem.source_filename} [URL: ${queueItem.source_platform || "unknown"}]`
-        : queueItem.source_filename;
+        ? t("queueSourceUrl", {
+          name: queueItem.source_title || queueItem.source_filename,
+          platform: queueItem.source_platform || "unknown",
+        })
+        : t("queueSourceFile", {
+          name: queueItem.source_filename,
+          type: queueItem.source_type === "mic"
+            ? t("microphone")
+            : queueItem.source_type === "system"
+              ? t("systemAudio")
+              : t("localFile"),
+        });
       name.textContent = `${queueItem.index}. ${sourceLabel}`;
       state.textContent = queueStatusLabel(queueItem.status);
       state.dataset.type = queueItem.status;
-      item.title = queueItem.error_message || queueItem.source_url || queueItem.source_path;
+      item.title = translateUiText(queueItem.error_message || queueItem.source_url || queueItem.source_path);
       item.append(name, state);
       queueList.append(item);
     }
@@ -880,6 +896,7 @@ function renderQueue(status) {
 
   queueAddButton.disabled = queueActive;
   queueFileInput.disabled = queueActive;
+  queueFilePickerButton.disabled = queueActive;
   queueUrlAddButton.disabled = queueActive;
   queueUrlInput.disabled = queueActive;
   queueStartButton.disabled = queueActive || pending === 0;
@@ -904,7 +921,7 @@ function renderQueue(status) {
           ? t("modelDownloading", { model: activeRuntimeModel })
           : t("queueRunning"),
       modelLoading ? t("modelDownloadText") : t("queueOverlay", {
-        done: completed + failed,
+        done: finished,
         total,
         item: status.current_file || "-",
         stage: queueStatusLabel(current.status || "pending"),
@@ -915,15 +932,36 @@ function renderQueue(status) {
   }
 
   if (previousQueueStatus === "running" && status.status === "completed") {
-    const message = `Очередь завершена. Готово: ${completed}, ошибок: ${failed}.`;
+    const message = t("queueCompletedSummary", { completed, failed, cancelled });
     setOutput(queueOutput, message, failed ? "warning" : "success");
     showToast(message, failed ? "warning" : "success");
     refreshStorage();
   } else if (previousQueueStatus === "running" && status.status === "cancelled") {
-    setOutput(queueOutput, "Очередь остановлена после текущей задачи.", "warning");
-    showToast("Очередь остановлена после текущей задачи.", "warning");
+    setOutput(queueOutput, t("queueStopped"), "warning");
+    showToast(t("queueStopped"), "warning");
   }
 
+  const latestCompletedItem = [...(status.items || [])]
+    .reverse()
+    .find((item) => item.status === "completed");
+  if (status.model) {
+    runtimeModel.textContent = status.model;
+  }
+  if (status.device_preference) {
+    runtimeDevice.textContent = status.device_preference;
+  }
+  if (latestCompletedItem?.realtime_factor !== null && latestCompletedItem?.realtime_factor !== undefined) {
+    runtimeSpeed.textContent = `${latestCompletedItem.realtime_factor}x`;
+  }
+  const latestTechnicalItem = [...(status.items || [])]
+    .reverse()
+    .find((item) => item.technical_details);
+  if (latestTechnicalItem) {
+    showTechnicalDetails(translateUiText(latestTechnicalItem.technical_details));
+  } else {
+    hideTechnicalDetails();
+  }
+  maybeLoadLatestQueueTranscript(status);
   previousQueueStatus = status.status;
   updateLongOperationControls();
 }
@@ -955,8 +993,11 @@ function updateLongOperationControls() {
   whisperModelSelect.disabled = active;
   whisperDeviceSelect.disabled = active;
   transcribeButton.disabled = active;
+  audioFileInput.disabled = active;
+  audioFilePickerButton.disabled = active;
   queueAddButton.disabled = active;
   queueFileInput.disabled = active;
+  queueFilePickerButton.disabled = active;
   queueUrlAddButton.disabled = active;
   queueUrlInput.disabled = active;
   queueStartButton.disabled = active || Number(latestQueueStatus?.pending_items || 0) === 0;
@@ -964,6 +1005,7 @@ function updateLongOperationControls() {
   queueRetryButton.disabled = active || Number(latestQueueStatus?.failed_items || 0) === 0;
   benchmarkUploadButton.disabled = active;
   benchmarkFileInput.disabled = active;
+  benchmarkFilePickerButton.disabled = active;
   for (const button of benchmarkButtons) {
     button.disabled = active || !benchmarkSourceId;
   }
@@ -977,16 +1019,16 @@ function formatBenchmarkResult(result) {
   }
   return [
     `${result.device?.toUpperCase()} / ${result.benchmark_mode}`,
-    `Total wall time: ${result.total_wall_time_sec ?? "-"} sec`,
-    `Model load time: ${result.model_load_time_sec ?? "-"} sec`,
-    `Transcription time: ${result.transcription_time_sec ?? "-"} sec`,
-    `Save time: ${result.save_time_sec ?? "-"} sec`,
-    `Audio duration: ${result.audio_duration_sec ?? "-"} sec`,
-    `Realtime factor total: ${result.realtime_factor_total ?? "-"}`,
-    `Pure model factor: ${result.realtime_factor_transcription_only ?? "-"}`,
-    `Compute type: ${result.compute_type ?? "-"}`,
-    `TXT: ${result.transcript_path ?? "-"}`,
-    `JSON: ${result.json_path ?? "-"}`,
+    t("benchmarkTotalWallTime", { value: result.total_wall_time_sec ?? "-" }),
+    t("benchmarkModelLoadTime", { value: result.model_load_time_sec ?? "-" }),
+    t("benchmarkTranscriptionTime", { value: result.transcription_time_sec ?? "-" }),
+    t("benchmarkSaveTime", { value: result.save_time_sec ?? "-" }),
+    t("benchmarkAudioDuration", { value: result.audio_duration_sec ?? "-" }),
+    t("benchmarkRealtimeFactorTotal", { value: result.realtime_factor_total ?? "-" }),
+    t("benchmarkPureModelFactor", { value: result.realtime_factor_transcription_only ?? "-" }),
+    t("benchmarkComputeType", { value: result.compute_type ?? "-" }),
+    t("benchmarkTxt", { value: result.transcript_path ?? "-" }),
+    t("benchmarkJson", { value: result.json_path ?? "-" }),
   ].join("\n");
 }
 
@@ -1021,7 +1063,7 @@ async function refreshBenchmarkStatus() {
 }
 
 startRecordButton.addEventListener("click", async () => {
-  setOutput(recordingOutput, "Запускаю запись...");
+  setOutput(recordingOutput, t("startingRecording"));
   updateRecordingTranscribeActions([]);
   startRecordButton.disabled = true;
 
@@ -1038,27 +1080,27 @@ startRecordButton.addEventListener("click", async () => {
     setRecordingUi(true);
     recordingStartedAtMs = Date.now();
     updateRecordingTimerUi();
-    setAppState("Идет запись", "active");
-    showToast("Запись началась", "success");
+    setAppState(t("recordingActive"), "active");
+    showToast(t("recordingStarted"), "success");
     const paths = result.recordings.map((item) => `${item.source_type}: ${item.file_path}`).join("\n");
-    setOutput(recordingOutput, `Запись идет.\n${paths}`, "success");
+    setOutput(recordingOutput, `${t("recordingInProgress")}\n${paths}`, "success");
   } catch (error) {
     setRecordingUi(false);
-    setAppState("Ошибка записи", "error");
+    setAppState(t("recordingError"), "error");
     setOutput(recordingOutput, error.message, "error");
-    showToast("Ошибка записи", "error");
+    showToast(t("recordingError"), "error");
   }
 });
 
 stopRecordButton.addEventListener("click", async () => {
-  setOutput(recordingOutput, "Сохраняю запись...");
+  setOutput(recordingOutput, t("savingRecording"));
   stopRecordButton.disabled = true;
 
   try {
     const result = await requestJson("/api/record/stop", { method: "POST" });
     setRecordingUi(false);
-    setAppState("Запись завершена", "success");
-    showToast("Запись завершена", "success");
+    setAppState(t("recordingCompleted"), "success");
+    showToast(t("recordingCompleted"), "success");
     const diagnosticsList = result.diagnostics_list || [result.diagnostics];
     recordingStartedAtMs = null;
     lastRecordingDurationSec = Number(result.duration_sec || Math.max(...diagnosticsList.map((item) => item.duration_sec || 0)));
@@ -1069,9 +1111,9 @@ stopRecordButton.addEventListener("click", async () => {
     await refreshStorage();
   } catch (error) {
     setRecordingUi(false);
-    setAppState("Ошибка записи", "error");
+    setAppState(t("recordingError"), "error");
     setOutput(recordingOutput, error.message, "error");
-    showToast("Ошибка записи", "error");
+    showToast(t("recordingError"), "error");
   }
 });
 
@@ -1089,42 +1131,27 @@ whisperModelSelect.addEventListener("change", () => {
   updateQueueSettingsSummary();
 });
 whisperDeviceSelect.addEventListener("change", updateQueueSettingsSummary);
-transcribeMicRecordingButton.addEventListener("click", () => transcribeRecordingByType("mic"));
-transcribeSystemRecordingButton.addEventListener("click", () => transcribeRecordingByType("system"));
-transcribeAllRecordingsButton.addEventListener("click", transcribeAllRecordings);
+transcribeMicRecordingButton.addEventListener("click", () => addRecordingByType("mic"));
+transcribeSystemRecordingButton.addEventListener("click", () => addRecordingByType("system"));
+transcribeAllRecordingsButton.addEventListener("click", addAllRecordings);
 openRecordingsButton.addEventListener("click", () => openFolder("recordings"));
 openTranscriptsButton.addEventListener("click", () => openFolder("transcripts"));
+audioFilePickerButton.addEventListener("click", () => audioFileInput.click());
+queueFilePickerButton.addEventListener("click", () => queueFileInput.click());
+benchmarkFilePickerButton.addEventListener("click", () => benchmarkFileInput.click());
+audioFileInput.addEventListener("change", () => updateFilePickerText(audioFileInput, audioFilePickerText));
+queueFileInput.addEventListener("change", () => updateFilePickerText(queueFileInput, queueFilePickerText, true));
+benchmarkFileInput.addEventListener("change", () => updateFilePickerText(benchmarkFileInput, benchmarkFilePickerText));
 queueAddForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const files = Array.from(queueFileInput.files || []);
-  if (!files.length) {
-    setOutput(queueOutput, "Выберите хотя бы один файл для очереди.", "error");
-    return;
-  }
-
-  const formData = new FormData();
-  for (const file of files) {
-    formData.append("files", file);
-  }
-  queueAddButton.disabled = true;
-  setOutput(queueOutput, "Добавляю файлы в очередь...");
-  try {
-    renderQueue(await requestJson("/api/queue/add-files", { method: "POST", body: formData }));
-    queueFileInput.value = "";
-    setOutput(queueOutput, `Файлы добавлены в очередь: ${files.length}.`, "success");
-    showToast("Файлы добавлены в очередь.", "success");
-  } catch (error) {
-    setOutput(queueOutput, error.message, "error");
-    showToast(error.message, "error");
-  } finally {
-    queueAddButton.disabled = queueActive;
-  }
+  await addLocalFilesToQueue(files, queueFileInput, queueFilePickerText, true);
 });
 queueUrlForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const urls = queueUrlInput.value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
   if (!urls.length) {
-    setOutput(queueOutput, "Добавьте хотя бы одну ссылку для очереди.", "error");
+    setOutput(queueOutput, t("selectAtLeastOneUrl"), "error");
     return;
   }
   queueUrlAddButton.disabled = true;
@@ -1153,22 +1180,22 @@ queueStartButton.addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: selectedModel(), device: selectedDevice() }),
     }));
-    setOutput(queueOutput, "Очередь запущена.");
-    showToast("Очередь запущена.", "info");
+    setOutput(queueOutput, t("queueStarted"));
+    showToast(t("queueStarted"), "info");
   } catch (error) {
     setOutput(queueOutput, error.message, "error");
     showToast(error.message, "error");
   }
 });
-queueStopButton.addEventListener("click", () => postQueueAction("/api/queue/stop-after-current", "Очередь остановится после текущей задачи."));
-queueClearButton.addEventListener("click", () => postQueueAction("/api/queue/clear", "Очередь очищена."));
-queueRetryButton.addEventListener("click", () => postQueueAction("/api/queue/retry-errors", "Ошибочные задачи возвращены в ожидание."));
+queueStopButton.addEventListener("click", () => postQueueAction("/api/queue/stop-after-current", t("queueWillStop")));
+queueClearButton.addEventListener("click", () => postQueueAction("/api/queue/clear", t("queueCleared")));
+queueRetryButton.addEventListener("click", () => postQueueAction("/api/queue/retry-errors", t("queueRetried")));
 
 benchmarkUploadForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const file = benchmarkFileInput.files[0];
   if (!file) {
-    setOutput(benchmarkStatusOutput, "Выберите локальный файл для benchmark.", "error");
+    setOutput(benchmarkStatusOutput, t("selectBenchmarkFile"), "error");
     return;
   }
   const formData = new FormData();
@@ -1205,38 +1232,13 @@ for (const button of benchmarkButtons) {
 
 transcribeForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-
-  const file = audioFileInput.files[0];
-  if (!file) {
-    setOutput(transcribeOutput, "Выберите аудиофайл.", "error");
-    return;
-  }
-
-  await runTranscription(async () => {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("model", selectedModel());
-    formData.append("device", selectedDevice());
-
-    transcriptText.value = "";
-    setOutput(transcribeOutput, "Транскрибирую аудио...");
-    setOutput(benchmarkOutput, "");
-
-    const result = await requestJson("/api/transcribe", {
-      method: "POST",
-      body: formData,
-    });
-
-    transcriptText.value = result.text;
-    updateRuntimeDetails(result.benchmark);
-    setOutput(transcribeOutput, `Текст сохранен: ${result.transcript_path}`, "success");
-    setOutput(benchmarkOutput, formatBenchmark(result.benchmark, result.benchmark_path), "success");
-    await refreshModelStatuses();
-    await refreshStorage();
-  });
+  await addLocalFilesToQueue(Array.from(audioFileInput.files || []), audioFileInput, audioFilePickerText);
 });
 
 async function boot() {
+  updateFilePickerText(audioFileInput, audioFilePickerText);
+  updateFilePickerText(queueFileInput, queueFilePickerText, true);
+  updateFilePickerText(benchmarkFileInput, benchmarkFilePickerText);
   updateModeUi();
   await loadDevices();
   await refreshStatus();
@@ -1259,6 +1261,9 @@ setInterval(refreshQueueStatus, 1000);
 setInterval(refreshBenchmarkStatus, 1000);
 
 document.addEventListener("lat-language-change", () => {
+  updateFilePickerText(audioFileInput, audioFilePickerText);
+  updateFilePickerText(queueFileInput, queueFilePickerText, true);
+  updateFilePickerText(benchmarkFileInput, benchmarkFilePickerText);
   updateQueueSettingsSummary(queueActive ? latestQueueStatus : null);
   if (latestQueueStatus) {
     renderQueue(latestQueueStatus);

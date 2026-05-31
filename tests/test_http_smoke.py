@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -76,6 +77,68 @@ class HttpSmokeTests(unittest.TestCase):
             self.assertEqual(200, client.get("/api/benchmark/status").status_code)
             storage_payload = client.get("/api/storage").json()
             self.assertIn("free_gb", storage_payload["disk"])
+
+    def test_recording_queue_and_transcript_reader_are_path_constrained(self) -> None:
+        with TemporaryDirectory(dir=PROJECT_TMP) as temp_dir:
+            root = Path(temp_dir)
+            recordings_dir = root / "recordings"
+            transcripts_dir = root / "transcripts"
+            recordings_dir.mkdir()
+            transcripts_dir.mkdir()
+            recording_path = recordings_dir / "mic.wav"
+            missing_recording_path = recordings_dir / "missing.wav"
+            transcript_path = transcripts_dir / "result.txt"
+            non_txt_transcript_path = transcripts_dir / "result.json"
+            outside_transcript_path = root / "outside.txt"
+            recording_path.write_bytes(b"audio")
+            transcript_path.write_text("recognized text", encoding="utf-8")
+            non_txt_transcript_path.write_text("{}", encoding="utf-8")
+            outside_transcript_path.write_text("private text", encoding="utf-8")
+
+            with (
+                patch.object(config, "RECORDINGS_DIR", recordings_dir),
+                patch.object(config, "TRANSCRIPTS_DIR", transcripts_dir),
+                patch.object(main_module.queue_manager, "add_files", return_value={"status": "pending"}) as add_files,
+                TestClient(main_module.app) as client,
+            ):
+                response = client.post(
+                    "/api/queue/add-recordings",
+                    json={"files": [{"file_path": str(recording_path), "source_type": "mic"}]},
+                )
+                self.assertEqual(200, response.status_code)
+                queued_file = add_files.call_args.args[0][0]
+                self.assertEqual(recording_path, queued_file.source_path)
+                self.assertEqual("mic", queued_file.source_type)
+
+                rejected_recording = client.post(
+                    "/api/queue/add-recordings",
+                    json={"files": [{"file_path": str(outside_transcript_path), "source_type": "mic"}]},
+                )
+                self.assertEqual(400, rejected_recording.status_code)
+                missing_recording = client.post(
+                    "/api/queue/add-recordings",
+                    json={"files": [{"file_path": str(missing_recording_path), "source_type": "mic"}]},
+                )
+                self.assertEqual(400, missing_recording.status_code)
+                rejected_source_type = client.post(
+                    "/api/queue/add-recordings",
+                    json={"files": [{"file_path": str(recording_path), "source_type": "browser"}]},
+                )
+                self.assertEqual(400, rejected_source_type.status_code)
+
+                read_response = client.get("/api/transcripts/read", params={"file_path": str(transcript_path)})
+                self.assertEqual(200, read_response.status_code)
+                self.assertEqual("recognized text", read_response.json()["text"])
+
+                rejected_read = client.get("/api/transcripts/read", params={"file_path": str(outside_transcript_path)})
+                self.assertEqual(400, rejected_read.status_code)
+                rejected_non_txt = client.get("/api/transcripts/read", params={"file_path": str(non_txt_transcript_path)})
+                self.assertEqual(400, rejected_non_txt.status_code)
+
+    def test_direct_transcription_routes_remain_available(self) -> None:
+        paths = {route.path for route in main_module.app.routes}
+        self.assertIn("/api/transcribe", paths)
+        self.assertIn("/api/transcribe/file", paths)
 
 
 if __name__ == "__main__":
