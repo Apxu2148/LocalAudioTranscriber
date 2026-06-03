@@ -1,6 +1,7 @@
 const startRecordButton = document.querySelector("#startRecordButton");
 const stopRecordButton = document.querySelector("#stopRecordButton");
-const refreshDevicesButton = document.querySelector("#refreshDevicesButton");
+const refreshMicDevicesButton = document.querySelector("#refreshMicDevicesButton");
+const refreshOutputDevicesButton = document.querySelector("#refreshOutputDevicesButton");
 const recordingModeSelect = document.querySelector("#recordingModeSelect");
 const micDeviceRow = document.querySelector("#micDeviceRow");
 const systemDeviceRow = document.querySelector("#systemDeviceRow");
@@ -109,6 +110,12 @@ let overlayOwner = null;
 let transcriptionPhase = null;
 let activeRuntimeModel = null;
 let lastLoadedQueueTranscriptPath = null;
+let activeMicDeviceValue = "";
+let activeOutputDeviceValue = "";
+let micDevicesRefreshInFlight = false;
+let outputDevicesRefreshInFlight = false;
+let micSwitchInFlight = false;
+let outputSwitchInFlight = false;
 
 function t(key, variables = {}) {
   return window.LATI18N?.t(key, variables) || key;
@@ -211,14 +218,19 @@ function hasSelectableDevice(select) {
   return Array.from(select.options).some((option) => !option.disabled && option.value !== "");
 }
 
+function selectHasValue(select, value) {
+  return Array.from(select.options).some((option) => option.value === String(value ?? ""));
+}
+
 function setRecordingUi(recording) {
   isRecording = recording;
   startRecordButton.disabled = recording || isTranscribing || queueActive || benchmarkActive;
   stopRecordButton.disabled = !recording;
   recordingModeSelect.disabled = recording;
-  micDeviceSelect.disabled = recording;
-  outputDeviceSelect.disabled = recording;
-  refreshDevicesButton.disabled = recording;
+  micDeviceSelect.disabled = recording ? !modeUsesMic() || micSwitchInFlight : micSwitchInFlight;
+  outputDeviceSelect.disabled = recording ? !modeUsesSystem() || outputSwitchInFlight : outputSwitchInFlight;
+  refreshMicDevicesButton.disabled = micDevicesRefreshInFlight;
+  refreshOutputDevicesButton.disabled = outputDevicesRefreshInFlight;
 
   if (!isTranscribing) {
     setAppState(t(recording ? "recordingActive" : "readyToRecord"), recording ? "active" : "idle");
@@ -321,28 +333,76 @@ function systemLevelTarget() {
 }
 
 async function loadDevices() {
+  await Promise.all([
+    refreshMicDevices(false),
+    refreshOutputDevices(false),
+  ]);
+}
+
+async function refreshMicDevices(announce = true) {
   const previousMicValue = micDeviceSelect.value;
-  const previousOutputValue = outputDeviceSelect.value;
-  micDeviceSelect.innerHTML = "";
-  outputDeviceSelect.innerHTML = "";
-  setOutput(recordingOutput, t("refreshingDevices"));
+  const wasRecording = isRecording;
+  micDevicesRefreshInFlight = true;
+  setRecordingUi(isRecording);
+  if (announce) {
+    setOutput(recordingOutput, t("refreshingDevices"));
+  }
 
   try {
-    const [inputResult, outputResult] = await Promise.all([
-      requestJson("/api/audio/devices"),
-      requestJson("/api/audio/output-devices"),
-    ]);
-
+    const inputResult = await requestJson("/api/audio/devices");
     fillMicDevices(inputResult, previousMicValue);
-    fillOutputDevices(outputResult, previousOutputValue);
-    setOutput(recordingOutput, t("devicesUpdated"));
+    if (!wasRecording) {
+      activeMicDeviceValue = micDeviceSelect.value;
+    }
+    if (announce) {
+      setOutput(recordingOutput, t("micDevicesUpdated"), "success");
+    }
   } catch (error) {
-    setOutput(recordingOutput, error.message, "error");
+    if (previousMicValue && selectHasValue(micDeviceSelect, previousMicValue)) {
+      micDeviceSelect.value = previousMicValue;
+    }
+    setOutput(recordingOutput, `${t("refreshMicDevicesFailed")}\n${error.message}`, "error");
+  } finally {
+    micDevicesRefreshInFlight = false;
+    setRecordingUi(isRecording);
+    refreshMicLevel();
+  }
+}
+
+async function refreshOutputDevices(announce = true) {
+  const previousOutputValue = outputDeviceSelect.value;
+  const wasRecording = isRecording;
+  outputDevicesRefreshInFlight = true;
+  setRecordingUi(isRecording);
+  if (announce) {
+    setOutput(recordingOutput, t("refreshingDevices"));
+  }
+
+  try {
+    const outputResult = await requestJson("/api/audio/output-devices");
+    fillOutputDevices(outputResult, previousOutputValue);
+    if (!wasRecording) {
+      activeOutputDeviceValue = outputDeviceSelect.value;
+    }
+    if (announce) {
+      setOutput(recordingOutput, t("outputDevicesUpdated"), "success");
+    }
+  } catch (error) {
+    if (previousOutputValue && selectHasValue(outputDeviceSelect, previousOutputValue)) {
+      outputDeviceSelect.value = previousOutputValue;
+    }
+    setOutput(recordingOutput, `${t("refreshOutputDevicesFailed")}\n${error.message}`, "error");
+  } finally {
+    outputDevicesRefreshInFlight = false;
+    setRecordingUi(isRecording);
+    refreshSystemLevel();
   }
 }
 
 function fillMicDevices(result, previousValue) {
-  if (!result.devices.length) {
+  micDeviceSelect.innerHTML = "";
+  const devices = result.devices || [];
+  if (!devices.length) {
     const option = document.createElement("option");
     option.value = "";
     option.disabled = true;
@@ -352,7 +412,7 @@ function fillMicDevices(result, previousValue) {
     return;
   }
 
-  for (const device of result.devices) {
+  for (const device of devices) {
     const option = document.createElement("option");
     option.value = String(device.id);
     const defaultText = device.is_default ? ` ${t("defaultSuffix")}` : "";
@@ -370,7 +430,9 @@ function fillMicDevices(result, previousValue) {
 }
 
 function fillOutputDevices(result, previousValue) {
-  if (!result.devices.length) {
+  outputDeviceSelect.innerHTML = "";
+  const devices = result.devices || [];
+  if (!devices.length) {
     const option = document.createElement("option");
     option.value = "";
     option.disabled = true;
@@ -380,7 +442,7 @@ function fillOutputDevices(result, previousValue) {
     return;
   }
 
-  for (const device of result.devices) {
+  for (const device of devices) {
     const option = document.createElement("option");
     option.value = String(device.id);
     const defaultText = device.is_default_output ? ` ${t("defaultSuffix")}` : "";
@@ -397,11 +459,114 @@ function fillOutputDevices(result, previousValue) {
   }
 }
 
+async function handleMicDeviceChange() {
+  if (isRecording && modeUsesMic()) {
+    await switchMicDevice();
+    return;
+  }
+
+  activeMicDeviceValue = micDeviceSelect.value;
+  refreshMicLevel();
+}
+
+async function handleOutputDeviceChange() {
+  if (isRecording && modeUsesSystem()) {
+    await switchOutputDevice();
+    return;
+  }
+
+  activeOutputDeviceValue = outputDeviceSelect.value;
+  refreshSystemLevel();
+}
+
+async function switchMicDevice() {
+  if (micSwitchInFlight) {
+    return;
+  }
+
+  const previousValue = activeMicDeviceValue;
+  const nextValue = micDeviceSelect.value;
+  micSwitchInFlight = true;
+  setRecordingUi(true);
+
+  try {
+    const result = await requestJson("/api/record/switch-microphone", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        device_id: nextValue === "" ? null : Number(nextValue),
+      }),
+    });
+    activeMicDeviceValue = result.device_id === null || result.device_id === undefined
+      ? ""
+      : String(result.device_id);
+    if (selectHasValue(micDeviceSelect, activeMicDeviceValue)) {
+      micDeviceSelect.value = activeMicDeviceValue;
+    }
+    setOutput(recordingOutput, t("microphoneSwitched"), "success");
+    showToast(t("microphoneSwitched"), "success");
+    refreshMicLevel();
+  } catch (error) {
+    activeMicDeviceValue = previousValue;
+    if (selectHasValue(micDeviceSelect, previousValue)) {
+      micDeviceSelect.value = previousValue;
+    }
+    setOutput(recordingOutput, `${t("microphoneSwitchFailed")}\n${error.message}`, "error");
+    showToast(t("microphoneSwitchFailed"), "error");
+    refreshMicLevel();
+  } finally {
+    micSwitchInFlight = false;
+    setRecordingUi(isRecording);
+  }
+}
+
+async function switchOutputDevice() {
+  if (outputSwitchInFlight) {
+    return;
+  }
+
+  const previousValue = activeOutputDeviceValue;
+  const nextValue = outputDeviceSelect.value;
+  outputSwitchInFlight = true;
+  setRecordingUi(true);
+
+  try {
+    const result = await requestJson("/api/record/switch-output-device", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        output_device_id: nextValue === "" ? null : nextValue,
+      }),
+    });
+    activeOutputDeviceValue = result.output_device_id === null || result.output_device_id === undefined
+      ? ""
+      : String(result.output_device_id);
+    if (selectHasValue(outputDeviceSelect, activeOutputDeviceValue)) {
+      outputDeviceSelect.value = activeOutputDeviceValue;
+    }
+    setOutput(recordingOutput, t("outputDeviceSwitched"), "success");
+    showToast(t("outputDeviceSwitched"), "success");
+    refreshSystemLevel();
+  } catch (error) {
+    activeOutputDeviceValue = previousValue;
+    if (selectHasValue(outputDeviceSelect, previousValue)) {
+      outputDeviceSelect.value = previousValue;
+    }
+    setOutput(recordingOutput, `${t("outputDeviceSwitchFailed")}\n${error.message}`, "error");
+    showToast(t("outputDeviceSwitchFailed"), "error");
+    refreshSystemLevel();
+  } finally {
+    outputSwitchInFlight = false;
+    setRecordingUi(isRecording);
+  }
+}
+
 function updateModeUi() {
   micDeviceRow.dataset.active = String(modeUsesMic());
   systemDeviceRow.dataset.active = String(modeUsesSystem());
   micLevelBlock.dataset.active = String(modeUsesMic());
   systemLevelBlock.dataset.active = String(modeUsesSystem());
+  setRecordingUi(isRecording);
 }
 
 async function refreshStatus() {
@@ -434,6 +599,10 @@ async function refreshStatus() {
     appVersion.textContent = `${t("version")}: ${status.app_version || "?"}`;
     syncRecordingTimer(status);
     isTranscribing = localTranscriptionActive || Boolean(transcription.in_progress);
+    if (status.recording && status.recording_mode) {
+      recordingModeSelect.value = status.recording_mode;
+      updateModeUi();
+    }
     setRecordingUi(Boolean(status.recording));
     updateRecordingTranscribeActions(lastRecordings);
 
@@ -1078,6 +1247,8 @@ startRecordButton.addEventListener("click", async () => {
       }),
     });
     setRecordingUi(true);
+    activeMicDeviceValue = micDeviceSelect.value;
+    activeOutputDeviceValue = outputDeviceSelect.value;
     recordingStartedAtMs = Date.now();
     updateRecordingTimerUi();
     setAppState(t("recordingActive"), "active");
@@ -1117,14 +1288,15 @@ stopRecordButton.addEventListener("click", async () => {
   }
 });
 
-refreshDevicesButton.addEventListener("click", loadDevices);
+refreshMicDevicesButton.addEventListener("click", () => refreshMicDevices(true));
+refreshOutputDevicesButton.addEventListener("click", () => refreshOutputDevices(true));
 recordingModeSelect.addEventListener("change", () => {
   updateModeUi();
   refreshMicLevel();
   refreshSystemLevel();
 });
-micDeviceSelect.addEventListener("change", refreshMicLevel);
-outputDeviceSelect.addEventListener("change", refreshSystemLevel);
+micDeviceSelect.addEventListener("change", handleMicDeviceChange);
+outputDeviceSelect.addEventListener("change", handleOutputDeviceChange);
 whisperModelSelect.addEventListener("change", () => {
   runtimeModel.textContent = selectedModel();
   updateModelAvailabilityUi();

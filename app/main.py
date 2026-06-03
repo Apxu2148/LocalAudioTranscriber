@@ -65,6 +65,14 @@ class StartRecordingRequest(BaseModel):
     output_device_id: str | None = None
 
 
+class SwitchMicrophoneRequest(BaseModel):
+    device_id: int | None = None
+
+
+class SwitchOutputDeviceRequest(BaseModel):
+    output_device_id: str | None = None
+
+
 class TranscribeFileRequest(BaseModel):
     file_path: str
     source_type: str | None = None
@@ -399,6 +407,30 @@ def stop_recording() -> dict:
         "errors": errors,
         "duration_sec": last_recording_duration_sec,
     }
+
+
+@app.post("/api/record/switch-microphone")
+def switch_microphone(payload: SwitchMicrophoneRequest | None = Body(default=None)) -> dict:
+    request = payload or SwitchMicrophoneRequest()
+    if not recorder.is_recording:
+        raise_api_error("Запись микрофона не запущена.")
+
+    try:
+        return recorder.switch_input_device(request.device_id)
+    except RuntimeError as exc:
+        raise_api_error(str(exc), status_code=500)
+
+
+@app.post("/api/record/switch-output-device")
+def switch_output_device(payload: SwitchOutputDeviceRequest | None = Body(default=None)) -> dict:
+    request = payload or SwitchOutputDeviceRequest()
+    if not system_recorder.is_recording:
+        raise_api_error("Запись системного звука не запущена.")
+
+    try:
+        return system_recorder.switch_output_device(request.output_device_id)
+    except RuntimeError as exc:
+        raise_api_error(str(exc), status_code=500)
 
 
 @app.post("/api/transcribe")

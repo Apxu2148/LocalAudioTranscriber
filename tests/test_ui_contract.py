@@ -18,6 +18,8 @@ class UiContractTests(unittest.TestCase):
             "transcribeAllRecordingsButton",
             "audioFilePickerButton",
             "audioFilePickerText",
+            "refreshMicDevicesButton",
+            "refreshOutputDevicesButton",
             "queueFilePickerButton",
             "queueFilePickerText",
             "queueStartButton",

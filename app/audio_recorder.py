@@ -2,6 +2,7 @@ import logging
 import queue
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,7 @@ class AudioRecorder:
         self._latest_rms = 0.0
         self._latest_peak = 0.0
         self._signal_seen_at: float | None = None
+        self._device_switch_events: list[dict[str, Any]] = []
 
     @property
     def is_recording(self) -> bool:
@@ -130,6 +132,7 @@ class AudioRecorder:
             self._latest_rms = 0.0
             self._latest_peak = 0.0
             self._signal_seen_at = None
+            self._device_switch_events = []
 
         logger.info(
             "Starting %s recording: device_id=%s device_name=%s sample_rate=%s channels=%s output=%s",
@@ -215,6 +218,7 @@ class AudioRecorder:
             device_name = self._device_name
             last_status = self._last_status
             dropped_chunks = self._dropped_chunks
+            device_switch_events = list(self._device_switch_events)
             self._started_at = None
 
         if writer_error:
@@ -255,6 +259,7 @@ class AudioRecorder:
             "peak": round(float(peak), 6),
             "is_silence": is_silence,
             "warnings": warnings,
+            "device_switch_events": device_switch_events,
         }
         write_json_file(output_path.with_suffix(".json"), diagnostics)
 
@@ -269,6 +274,96 @@ class AudioRecorder:
         )
 
         return diagnostics
+
+    def switch_input_device(self, device_id: int | str | None = None) -> dict:
+        with self._lock:
+            old_stream = self._stream
+            if old_stream is None:
+                raise RuntimeError("Запись микрофона не запущена.")
+            previous_device = {
+                "id": self._device_id,
+                "name": self._device_name,
+            }
+            sample_rate = self._sample_rate
+            channels = self._channels
+
+        new_device = {
+            "id": device_id,
+            "name": "",
+        }
+        new_stream: sd.InputStream | None = None
+
+        try:
+            resolved_device_id, device_info = self._resolve_input_device(device_id)
+            if int(device_info.get("max_input_channels", 0)) < channels:
+                raise RuntimeError("Выбранный микрофон не поддерживает формат текущей записи.")
+
+            new_device = {
+                "id": resolved_device_id,
+                "name": str(device_info.get("name", "Default input")),
+            }
+            new_stream = sd.InputStream(
+                device=resolved_device_id,
+                samplerate=sample_rate,
+                channels=channels,
+                dtype="float32",
+                blocksize=config.RECORDING_BLOCKSIZE,
+                callback=self._audio_callback,
+            )
+            new_stream.start()
+            if not new_stream.active:
+                raise RuntimeError("Новый поток микрофона не запустился.")
+        except Exception as exc:
+            if new_stream is not None:
+                try:
+                    new_stream.stop()
+                    new_stream.close()
+                except Exception:
+                    logger.debug("Failed to close failed microphone switch stream", exc_info=True)
+            message = str(exc)
+            self._record_device_switch_event("mic", previous_device, new_device, "error", message)
+            logger.exception("Failed to switch microphone recording stream")
+            raise RuntimeError(f"Не удалось переключить микрофон: {message}") from exc
+
+        with self._lock:
+            if self._stream is not old_stream:
+                try:
+                    new_stream.stop()
+                    new_stream.close()
+                except Exception:
+                    logger.debug("Failed to close stale microphone switch stream", exc_info=True)
+                message = "Текущий поток микрофона уже изменился."
+                self._append_device_switch_event_locked(
+                    self._device_switch_event("mic", previous_device, new_device, "error", message)
+                )
+                raise RuntimeError(message)
+
+            self._stream = new_stream
+            self._device_id = new_device["id"]
+            self._device_name = str(new_device["name"])
+            self._append_device_switch_event_locked(
+                self._device_switch_event("mic", previous_device, new_device, "success")
+            )
+
+        try:
+            old_stream.stop()
+            old_stream.close()
+        except Exception:
+            logger.warning("Old microphone stream did not close cleanly after switch", exc_info=True)
+
+        logger.info(
+            "Microphone recording stream switched: previous_device=%s new_device=%s",
+            previous_device,
+            new_device,
+        )
+        return {
+            "track": "mic",
+            "recording": True,
+            "device_id": new_device["id"],
+            "device_name": new_device["name"],
+            "previous_device": previous_device,
+            "new_device": new_device,
+        }
 
     def get_level(self) -> dict:
         with self._lock:
@@ -417,6 +512,41 @@ class AudioRecorder:
 
         if writer_thread is not None and writer_thread.is_alive():
             writer_thread.join(timeout=10)
+
+    def _record_device_switch_event(
+        self,
+        track: str,
+        previous_device: dict[str, Any],
+        new_device: dict[str, Any],
+        result: str,
+        error: str | None = None,
+    ) -> None:
+        event = self._device_switch_event(track, previous_device, new_device, result, error)
+        with self._lock:
+            self._append_device_switch_event_locked(event)
+
+    def _append_device_switch_event_locked(self, event: dict[str, Any]) -> None:
+        self._device_switch_events.append(event)
+
+    def _device_switch_event(
+        self,
+        track: str,
+        previous_device: dict[str, Any],
+        new_device: dict[str, Any],
+        result: str,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        event = {
+            "event": "device_switch",
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "track": track,
+            "previous_device": previous_device,
+            "new_device": new_device,
+            "result": result,
+        }
+        if error:
+            event["error"] = error
+        return event
 
     def _resolve_input_device(self, device_id: int | str | None) -> tuple[int | None, dict]:
         parsed_device_id = self._parse_device_id(device_id)

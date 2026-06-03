@@ -1,8 +1,10 @@
 import ctypes
 import logging
 import os
+import queue
 import threading
 import time
+from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -38,6 +40,8 @@ class SystemAudioRecorder:
         self._latest_rms = 0.0
         self._latest_peak = 0.0
         self._signal_seen_at: float | None = None
+        self._switch_requests: queue.Queue[dict[str, Any]] = queue.Queue()
+        self._device_switch_events: list[dict[str, Any]] = []
 
     @property
     def is_recording(self) -> bool:
@@ -117,6 +121,8 @@ class SystemAudioRecorder:
             self._latest_rms = 0.0
             self._latest_peak = 0.0
             self._signal_seen_at = None
+            self._switch_requests = queue.Queue()
+            self._device_switch_events = []
 
             self._thread = threading.Thread(
                 target=self._record_loop,
@@ -175,6 +181,7 @@ class SystemAudioRecorder:
             channels = self._channels
             output_device_id = self._output_device_id
             output_device_name = self._output_device_name
+            device_switch_events = list(self._device_switch_events)
             self._thread = None
             self._started_at = None
 
@@ -212,6 +219,7 @@ class SystemAudioRecorder:
             "peak": round(float(peak), 6),
             "is_silence": is_silence,
             "warnings": warnings,
+            "device_switch_events": device_switch_events,
         }
         write_json_file(output_path.with_suffix(".json"), diagnostics)
 
@@ -225,6 +233,56 @@ class SystemAudioRecorder:
         )
 
         return diagnostics
+
+    def switch_output_device(self, output_device_id: str | None = None) -> dict:
+        with self._lock:
+            thread = self._thread
+            if thread is None or not thread.is_alive():
+                raise RuntimeError("Запись системного звука не запущена.")
+            previous_device = {
+                "id": self._output_device_id,
+                "name": self._output_device_name,
+            }
+            channels = self._channels
+
+        new_device = {
+            "id": output_device_id,
+            "name": "",
+        }
+
+        try:
+            ensure_com_initialized()
+            speaker = self._resolve_speaker(output_device_id)
+            if int(speaker.channels or config.SYSTEM_CHANNELS) < channels:
+                raise RuntimeError("Выбранное устройство вывода не поддерживает формат текущей записи.")
+            new_device = {
+                "id": speaker.id,
+                "name": speaker.name,
+            }
+        except Exception as exc:
+            message = str(exc)
+            self._record_device_switch_event("system", previous_device, new_device, "error", message)
+            raise RuntimeError(f"Не удалось переключить устройство вывода: {message}") from exc
+
+        switch_done = threading.Event()
+        request: dict[str, Any] = {
+            "event": switch_done,
+            "previous_device": previous_device,
+            "new_device": new_device,
+            "expired": False,
+        }
+        self._switch_requests.put(request)
+
+        if not switch_done.wait(timeout=10):
+            request["expired"] = True
+            message = "Переключение устройства вывода не завершилось вовремя."
+            self._record_device_switch_event("system", previous_device, new_device, "error", message)
+            raise RuntimeError(f"Не удалось переключить устройство вывода: {message}")
+
+        if request.get("error"):
+            raise RuntimeError(f"Не удалось переключить устройство вывода: {request['error']}")
+
+        return request["response"]
 
     def get_level(self) -> dict:
         with self._lock:
@@ -299,6 +357,7 @@ class SystemAudioRecorder:
         }
 
     def _record_loop(self, speaker_id: str, output_path, sample_rate: int, channels: int) -> None:
+        recorder_context = None
         try:
             ensure_com_initialized()
             loopback = sc.get_microphone(id=speaker_id, include_loopback=True)
@@ -309,19 +368,30 @@ class SystemAudioRecorder:
                 channels=channels,
                 subtype="PCM_16",
             ) as audio_file:
-                with loopback.recorder(
+                recorder_context = loopback.recorder(
                     samplerate=sample_rate,
                     channels=channels,
                     blocksize=config.SYSTEM_RECORDING_BLOCKSIZE,
-                ) as recorder:
+                )
+                recorder = recorder_context.__enter__()
+                try:
                     self._started_event.set()
                     while not self._stop_event.is_set():
+                        recorder_context, recorder = self._apply_pending_switches(
+                            recorder_context,
+                            recorder,
+                            sample_rate,
+                            channels,
+                        )
                         chunk = recorder.record(numframes=config.SYSTEM_RECORDING_BLOCKSIZE)
                         if chunk.size == 0:
                             continue
 
                         audio_file.write(chunk)
                         self._update_metrics(chunk)
+                finally:
+                    if recorder_context is not None:
+                        recorder_context.__exit__(None, None, None)
         except Exception as exc:
             with self._lock:
                 self._error = (
@@ -330,6 +400,111 @@ class SystemAudioRecorder:
                 )
             logger.exception("System audio recorder failed")
             self._started_event.set()
+        finally:
+            self._fail_pending_switch_requests("Запись системного звука остановлена до переключения устройства.")
+
+    def _apply_pending_switches(
+        self,
+        recorder_context,
+        recorder,
+        sample_rate: int,
+        channels: int,
+    ):
+        while True:
+            try:
+                request = self._switch_requests.get_nowait()
+            except queue.Empty:
+                return recorder_context, recorder
+
+            if request.get("expired"):
+                continue
+
+            previous_device = request["previous_device"]
+            new_device = request["new_device"]
+            new_context = None
+
+            try:
+                loopback = sc.get_microphone(id=new_device["id"], include_loopback=True)
+                new_context = loopback.recorder(
+                    samplerate=sample_rate,
+                    channels=channels,
+                    blocksize=config.SYSTEM_RECORDING_BLOCKSIZE,
+                )
+                new_recorder = new_context.__enter__()
+            except Exception as exc:
+                if new_context is not None:
+                    try:
+                        new_context.__exit__(None, None, None)
+                    except Exception:
+                        logger.debug("Failed to close failed system audio switch context", exc_info=True)
+                message = str(exc)
+                self._complete_switch_request(request, previous_device, new_device, "error", message)
+                logger.exception("Failed to switch system audio recorder")
+                continue
+
+            try:
+                recorder_context.__exit__(None, None, None)
+            except Exception:
+                logger.warning("Old system audio recorder did not close cleanly after switch", exc_info=True)
+
+            with self._lock:
+                self._output_device_id = new_device["id"]
+                self._output_device_name = new_device["name"]
+                self._append_device_switch_event_locked(
+                    self._device_switch_event("system", previous_device, new_device, "success")
+                )
+
+            request["response"] = {
+                "track": "system",
+                "recording": True,
+                "output_device_id": new_device["id"],
+                "output_device_name": new_device["name"],
+                "previous_device": previous_device,
+                "new_device": new_device,
+            }
+            request["event"].set()
+            logger.info("System audio recorder switched: previous_device=%s new_device=%s", previous_device, new_device)
+            recorder_context = new_context
+            recorder = new_recorder
+
+    def _complete_switch_request(
+        self,
+        request: dict[str, Any],
+        previous_device: dict[str, Any],
+        new_device: dict[str, Any],
+        result: str,
+        error: str | None = None,
+    ) -> None:
+        self._record_device_switch_event("system", previous_device, new_device, result, error)
+        request["response"] = {
+            "track": "system",
+            "recording": True,
+            "output_device_id": self._output_device_id,
+            "output_device_name": self._output_device_name,
+            "previous_device": previous_device,
+            "new_device": new_device,
+        }
+        if error:
+            request["error"] = error
+        request["event"].set()
+
+    def _fail_pending_switch_requests(self, message: str) -> None:
+        while True:
+            try:
+                request = self._switch_requests.get_nowait()
+            except queue.Empty:
+                return
+
+            if request.get("expired"):
+                continue
+
+            self._complete_switch_request(
+                request,
+                request["previous_device"],
+                request["new_device"],
+                "error",
+                message,
+            )
 
     def _update_metrics(self, chunk) -> None:
         rms, peak = compute_audio_levels(chunk)
@@ -346,6 +521,41 @@ class SystemAudioRecorder:
             self._peak = max(self._peak, peak)
             if self._signal_seen_at is None and not self._is_silence(rms, peak):
                 self._signal_seen_at = time.perf_counter()
+
+    def _record_device_switch_event(
+        self,
+        track: str,
+        previous_device: dict[str, Any],
+        new_device: dict[str, Any],
+        result: str,
+        error: str | None = None,
+    ) -> None:
+        event = self._device_switch_event(track, previous_device, new_device, result, error)
+        with self._lock:
+            self._append_device_switch_event_locked(event)
+
+    def _append_device_switch_event_locked(self, event: dict[str, Any]) -> None:
+        self._device_switch_events.append(event)
+
+    def _device_switch_event(
+        self,
+        track: str,
+        previous_device: dict[str, Any],
+        new_device: dict[str, Any],
+        result: str,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        event = {
+            "event": "device_switch",
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "track": track,
+            "previous_device": previous_device,
+            "new_device": new_device,
+            "result": result,
+        }
+        if error:
+            event["error"] = error
+        return event
 
     def _resolve_speaker(self, output_device_id: str | None):
         try:

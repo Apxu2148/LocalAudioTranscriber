@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -134,6 +134,57 @@ class HttpSmokeTests(unittest.TestCase):
                 self.assertEqual(400, rejected_read.status_code)
                 rejected_non_txt = client.get("/api/transcripts/read", params={"file_path": str(non_txt_transcript_path)})
                 self.assertEqual(400, rejected_non_txt.status_code)
+
+    def test_runtime_switch_endpoints_reject_inactive_tracks(self) -> None:
+        with TestClient(main_module.app) as client:
+            mic_response = client.post("/api/record/switch-microphone", json={"device_id": 1})
+            self.assertEqual(400, mic_response.status_code)
+            output_response = client.post("/api/record/switch-output-device", json={"output_device_id": "speaker"})
+            self.assertEqual(400, output_response.status_code)
+
+    def test_runtime_switch_endpoints_delegate_to_recorders(self) -> None:
+        with (
+            patch.object(type(main_module.recorder), "is_recording", new_callable=PropertyMock, return_value=True),
+            patch.object(
+                type(main_module.system_recorder),
+                "is_recording",
+                new_callable=PropertyMock,
+                return_value=True,
+            ),
+            patch.object(
+                main_module.recorder,
+                "switch_input_device",
+                return_value={"track": "mic", "device_id": 2, "device_name": "Mic 2"},
+            ) as switch_mic,
+            patch.object(
+                main_module.system_recorder,
+                "switch_output_device",
+                return_value={"track": "system", "output_device_id": "speaker-2", "output_device_name": "Speaker 2"},
+            ) as switch_output,
+            TestClient(main_module.app) as client,
+        ):
+            mic_response = client.post("/api/record/switch-microphone", json={"device_id": 2})
+            self.assertEqual(200, mic_response.status_code)
+            self.assertEqual("mic", mic_response.json()["track"])
+            switch_mic.assert_called_once_with(2)
+
+            output_response = client.post(
+                "/api/record/switch-output-device",
+                json={"output_device_id": "speaker-2"},
+            )
+            self.assertEqual(200, output_response.status_code)
+            self.assertEqual("system", output_response.json()["track"])
+            switch_output.assert_called_once_with("speaker-2")
+
+    def test_runtime_switch_endpoint_reports_backend_failure(self) -> None:
+        with (
+            patch.object(type(main_module.recorder), "is_recording", new_callable=PropertyMock, return_value=True),
+            patch.object(main_module.recorder, "switch_input_device", side_effect=RuntimeError("device busy")),
+            TestClient(main_module.app) as client,
+        ):
+            response = client.post("/api/record/switch-microphone", json={"device_id": 2})
+            self.assertEqual(500, response.status_code)
+            self.assertIn("device busy", response.json()["detail"]["message"])
 
     def test_direct_transcription_routes_remain_available(self) -> None:
         paths = {route.path for route in main_module.app.routes}

@@ -65,8 +65,8 @@
             <div><h2 data-i18n="recording"></h2></div>
             <span id="recordingState" class="state" data-i18n="readyToRecord"></span>
           </div>
-          <div class="form-grid">
-            <label class="field" for="recordingModeSelect">
+          <div class="form-grid recording-mode-grid">
+            <label class="field recording-mode-field" for="recordingModeSelect">
               <span data-i18n="recordingMode"></span>
               <select id="recordingModeSelect" data-i18n-title="recordingModeTitle">
                 <option value="mic" data-i18n="microphone"></option>
@@ -74,37 +74,39 @@
                 <option value="both" data-i18n="microphoneAndSystem"></option>
               </select>
             </label>
-            <label id="micDeviceRow" class="field" for="micDeviceSelect">
-              <span data-i18n="microphone"></span>
-              <select id="micDeviceSelect" data-i18n-title="microphoneSelectTitle"></select>
-            </label>
-            <label id="systemDeviceRow" class="field" for="outputDeviceSelect">
-              <span data-i18n="outputDevice"></span>
-              <select id="outputDeviceSelect" data-i18n-title="outputDeviceSelectTitle"></select>
-            </label>
-            <div class="field field-action">
-              <span>&nbsp;</span>
-              <button id="refreshDevicesButton" type="button" data-i18n="refreshDevices" data-i18n-title="refreshDevicesTitle"></button>
-            </div>
           </div>
-          <div class="level-grid">
-            <div id="micLevelBlock" class="level-block" data-i18n-title="micLevelTitle">
-              <div class="level-label"><span data-i18n="microphoneLevel"></span></div>
-              <div class="level-meter" aria-hidden="true"><div id="micLevelMeterFill"></div></div>
-              <div class="metrics">
-                <span id="micRmsValue" data-i18n="rmsZero"></span>
-                <span id="micPeakValue" data-i18n="peakZero"></span>
+          <div class="recording-device-grid">
+            <div class="recording-device-column">
+              <div id="micDeviceRow" class="field device-field">
+                <span data-i18n="microphone"></span>
+                <select id="micDeviceSelect" data-i18n-title="microphoneSelectTitle"></select>
+                <button id="refreshMicDevicesButton" type="button" data-i18n="refreshMicDevices" data-i18n-title="refreshMicDevicesTitle"></button>
               </div>
-              <output id="micLevelWarning" class="output compact"></output>
+              <div id="micLevelBlock" class="level-block" data-i18n-title="micLevelTitle">
+                <div class="level-label"><span data-i18n="microphoneLevel"></span></div>
+                <div class="level-meter" aria-hidden="true"><div id="micLevelMeterFill"></div></div>
+                <div class="metrics">
+                  <span id="micRmsValue" data-i18n="rmsZero"></span>
+                  <span id="micPeakValue" data-i18n="peakZero"></span>
+                </div>
+                <output id="micLevelWarning" class="output compact"></output>
+              </div>
             </div>
-            <div id="systemLevelBlock" class="level-block" data-i18n-title="systemLevelTitle">
-              <div class="level-label"><span data-i18n="systemAudioLevel"></span></div>
-              <div class="level-meter" aria-hidden="true"><div id="systemLevelMeterFill"></div></div>
-              <div class="metrics">
-                <span id="systemRmsValue" data-i18n="rmsZero"></span>
-                <span id="systemPeakValue" data-i18n="peakZero"></span>
+            <div class="recording-device-column">
+              <div id="systemDeviceRow" class="field device-field">
+                <span data-i18n="outputDevice"></span>
+                <select id="outputDeviceSelect" data-i18n-title="outputDeviceSelectTitle"></select>
+                <button id="refreshOutputDevicesButton" type="button" data-i18n="refreshOutputDevices" data-i18n-title="refreshOutputDevicesTitle"></button>
               </div>
-              <output id="systemLevelWarning" class="output compact"></output>
+              <div id="systemLevelBlock" class="level-block" data-i18n-title="systemLevelTitle">
+                <div class="level-label"><span data-i18n="systemAudioLevel"></span></div>
+                <div class="level-meter" aria-hidden="true"><div id="systemLevelMeterFill"></div></div>
+                <div class="metrics">
+                  <span id="systemRmsValue" data-i18n="rmsZero"></span>
+                  <span id="systemPeakValue" data-i18n="peakZero"></span>
+                </div>
+                <output id="systemLevelWarning" class="output compact"></output>
+              </div>
             </div>
           </div>
           <div class="actions">

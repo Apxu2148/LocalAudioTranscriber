@@ -191,6 +191,28 @@ h4 {
   display: contents;
 }
 
+.recording-mode-grid {
+  grid-template-columns: 1fr;
+}
+
+.recording-mode-field {
+  max-width: 520px;
+}
+
+.recording-device-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+  margin-top: 18px;
+}
+
+.recording-device-column {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
 .model-row,
 .settings-grid {
   display: grid;
@@ -220,6 +242,10 @@ h4 {
 
 .field-action {
   align-self: end;
+}
+
+.device-field button {
+  width: 100%;
 }
 
 .hint {
@@ -914,6 +940,7 @@ textarea {
   }
 
   .form-grid,
+  .recording-device-grid,
   .model-row,
     .settings-grid,
     .level-grid,

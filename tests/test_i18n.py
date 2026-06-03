@@ -30,6 +30,16 @@ class I18nTests(unittest.TestCase):
             "chooseFile",
             "noFileSelected",
             "tourSourcesText",
+            "refreshMicDevices",
+            "refreshOutputDevices",
+            "micDevicesUpdated",
+            "outputDevicesUpdated",
+            "refreshMicDevicesFailed",
+            "refreshOutputDevicesFailed",
+            "microphoneSwitched",
+            "outputDeviceSwitched",
+            "microphoneSwitchFailed",
+            "outputDeviceSwitchFailed",
         ):
             self.assertIn(key, en_keys)
 
