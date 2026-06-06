@@ -109,6 +109,31 @@
               </div>
             </div>
           </div>
+          <details id="helpSection" class="help-block recording-help">
+            <summary data-i18n="helpDeviceSummary"></summary>
+            <h3 data-i18n="helpMicTitle"></h3>
+            <p data-i18n="helpMicText"></p>
+            <h3 data-i18n="helpSystemTitle"></h3>
+            <p data-i18n="helpSystemText"></p>
+            <p data-i18n="helpSystemOutputText"></p>
+            <p data-i18n="helpDeviceNamesText"></p>
+            <p data-i18n="helpLoopbackLimitText"></p>
+            <h3 data-i18n="helpSilentSystemTitle"></h3>
+            <ul>
+              <li data-i18n="helpSilentSystemWindows"></li>
+              <li data-i18n="helpSilentSystemMeetingApp"></li>
+              <li data-i18n="helpSilentSystemSameDevice"></li>
+              <li data-i18n="helpSilentSystemRefresh"></li>
+              <li data-i18n="helpSilentSystemTryAnother"></li>
+              <li data-i18n="helpSilentSystemRuntime"></li>
+            </ul>
+            <p data-i18n="helpOwnVoiceText"></p>
+            <h3 data-i18n="helpModelTitle"></h3>
+            <p data-i18n="helpModelText"></p>
+            <h3 id="legalUsage" data-i18n="legalTitle"></h3>
+            <p data-i18n="legalText"></p>
+            <p data-i18n="tourRepeat"></p>
+          </details>
           <div class="actions">
             <button id="startRecordButton" type="button" data-i18n="startRecording" data-i18n-title="startRecordingTitle"></button>
             <button id="stopRecordButton" type="button" disabled data-i18n="stopRecording" data-i18n-title="stopRecordingTitle"></button>
@@ -227,6 +252,33 @@
           <textarea id="transcriptText" readonly spellcheck="false" data-i18n-aria-label="latestResult"></textarea>
         </section>
 
+        <section id="filesSection" class="workspace-section">
+          <div class="section-heading">
+            <div>
+              <h2 data-i18n="files"></h2>
+              <p id="diskFree" class="section-note" data-i18n="diskChecking"></p>
+            </div>
+          </div>
+          <div class="storage-grid">
+            <div class="storage-block">
+              <h3>recordings</h3>
+              <p data-i18n="recordingsSavedIn"></p>
+              <code id="recordingsPath">C:\Python\LocalAudioTranscriber\data\recordings</code>
+              <button id="openRecordingsButton" type="button" data-i18n="openRecordings"></button>
+              <h4 data-i18n="latestFiles"></h4>
+              <ul id="recordingsFileList" class="file-list"></ul>
+            </div>
+            <div class="storage-block">
+              <h3>transcripts</h3>
+              <p data-i18n="transcriptsSavedIn"></p>
+              <code id="transcriptsPath">C:\Python\LocalAudioTranscriber\data\transcripts</code>
+              <button id="openTranscriptsButton" type="button" data-i18n="openTranscripts"></button>
+              <h4 data-i18n="latestFiles"></h4>
+              <ul id="transcriptsFileList" class="file-list"></ul>
+            </div>
+          </div>
+        </section>
+
         <section id="benchmarkSection" class="workspace-section">
           <div class="section-heading">
             <div>
@@ -264,47 +316,6 @@
           </div>
         </section>
 
-        <section id="filesSection" class="workspace-section">
-          <div class="section-heading">
-            <div>
-              <h2 data-i18n="files"></h2>
-              <p id="diskFree" class="section-note" data-i18n="diskChecking"></p>
-            </div>
-          </div>
-          <div class="storage-grid">
-            <div class="storage-block">
-              <h3>recordings</h3>
-              <p data-i18n="recordingsSavedIn"></p>
-              <code id="recordingsPath">C:\Python\LocalAudioTranscriber\data\recordings</code>
-              <button id="openRecordingsButton" type="button" data-i18n="openRecordings"></button>
-              <h4 data-i18n="latestFiles"></h4>
-              <ul id="recordingsFileList" class="file-list"></ul>
-            </div>
-            <div class="storage-block">
-              <h3>transcripts</h3>
-              <p data-i18n="transcriptsSavedIn"></p>
-              <code id="transcriptsPath">C:\Python\LocalAudioTranscriber\data\transcripts</code>
-              <button id="openTranscriptsButton" type="button" data-i18n="openTranscripts"></button>
-              <h4 data-i18n="latestFiles"></h4>
-              <ul id="transcriptsFileList" class="file-list"></ul>
-            </div>
-          </div>
-        </section>
-
-        <section id="helpSection" class="workspace-section">
-          <details class="help-block">
-            <summary data-i18n="helpSummary"></summary>
-            <h3 data-i18n="helpMicTitle"></h3>
-            <p data-i18n="helpMicText"></p>
-            <h3 data-i18n="helpSystemTitle"></h3>
-            <p data-i18n="helpSystemText"></p>
-            <h3 data-i18n="helpModelTitle"></h3>
-            <p data-i18n="helpModelText"></p>
-            <h3 id="legalUsage" data-i18n="legalTitle"></h3>
-            <p data-i18n="legalText"></p>
-            <p data-i18n="tourRepeat"></p>
-          </details>
-        </section>
       </section>
     </main>
 

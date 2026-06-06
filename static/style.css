@@ -754,6 +754,10 @@ textarea {
   padding: 14px 16px;
 }
 
+.recording-help {
+  margin-top: 16px;
+}
+
 .help-block summary {
   cursor: pointer;
   font-weight: 700;
@@ -764,7 +768,8 @@ textarea {
   margin-top: 18px;
 }
 
-.help-block ol {
+.help-block ol,
+.help-block ul {
   margin: 8px 0 0;
   padding-left: 22px;
 }

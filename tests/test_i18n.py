@@ -40,6 +40,18 @@ class I18nTests(unittest.TestCase):
             "outputDeviceSwitched",
             "microphoneSwitchFailed",
             "outputDeviceSwitchFailed",
+            "helpDeviceSummary",
+            "helpSystemOutputText",
+            "helpDeviceNamesText",
+            "helpLoopbackLimitText",
+            "helpSilentSystemTitle",
+            "helpSilentSystemWindows",
+            "helpSilentSystemMeetingApp",
+            "helpSilentSystemSameDevice",
+            "helpSilentSystemRefresh",
+            "helpSilentSystemTryAnother",
+            "helpSilentSystemRuntime",
+            "helpOwnVoiceText",
         ):
             self.assertIn(key, en_keys)
 
