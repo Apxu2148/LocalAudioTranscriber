@@ -216,11 +216,11 @@ def storage() -> dict:
         },
         "recordings": {
             "path": str(config.RECORDINGS_DIR),
-            "files": recent_files(config.RECORDINGS_DIR),
+            "files": recent_files(config.RECORDINGS_DIR, allowed_suffixes={".wav"}),
         },
         "transcripts": {
             "path": str(config.TRANSCRIPTS_DIR),
-            "files": recent_files(config.TRANSCRIPTS_DIR),
+            "files": recent_files(config.TRANSCRIPTS_DIR, allowed_suffixes={".txt"}),
         },
     }
 
@@ -820,12 +820,15 @@ def validate_transcript_txt_path(file_path: str) -> Path:
         raise_api_error(str(exc))
 
 
-def recent_files(directory: Path, limit: int = 5) -> list[dict]:
+def recent_files(directory: Path, limit: int = 5, allowed_suffixes: set[str] | None = None) -> list[dict]:
     directory.mkdir(parents=True, exist_ok=True)
     files: list[Path] = []
+    normalized_suffixes = {suffix.lower() for suffix in allowed_suffixes} if allowed_suffixes is not None else None
 
     for path in directory.iterdir():
         if not path.is_file() or path.name == ".gitkeep":
+            continue
+        if normalized_suffixes is not None and path.suffix.lower() not in normalized_suffixes:
             continue
         files.append(path)
 
