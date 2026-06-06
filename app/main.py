@@ -807,12 +807,16 @@ def validate_recording_audio_path(file_path: str) -> Path:
 
 def validate_transcript_txt_path(file_path: str) -> Path:
     try:
-        transcript_path = Path(file_path).resolve()
+        requested_name = (file_path or "").strip()
+        requested_path = Path(requested_name)
+        if not requested_name or requested_name != requested_path.name or ":" in requested_name:
+            raise RuntimeError("Можно читать только TXT-файлы из папки data/transcripts.")
+        if requested_path.suffix.lower() != ".txt":
+            raise RuntimeError("Можно читать только TXT-файлы транскриптов.")
+        transcript_path = (config.TRANSCRIPTS_DIR / requested_name).resolve()
         transcripts_dir = config.TRANSCRIPTS_DIR.resolve()
         if not transcript_path.is_relative_to(transcripts_dir):
             raise RuntimeError("Можно читать только TXT-файлы из папки data/transcripts.")
-        if transcript_path.suffix.lower() != ".txt":
-            raise RuntimeError("Можно читать только TXT-файлы транскриптов.")
         if not transcript_path.is_file():
             raise RuntimeError("TXT-файл транскрипта не найден.")
         return transcript_path

@@ -126,14 +126,18 @@ class HttpSmokeTests(unittest.TestCase):
                 )
                 self.assertEqual(400, rejected_source_type.status_code)
 
-                read_response = client.get("/api/transcripts/read", params={"file_path": str(transcript_path)})
+                read_response = client.get("/api/transcripts/read", params={"file_path": "result.txt"})
                 self.assertEqual(200, read_response.status_code)
                 self.assertEqual("recognized text", read_response.json()["text"])
 
+                rejected_absolute = client.get("/api/transcripts/read", params={"file_path": str(transcript_path)})
+                self.assertEqual(400, rejected_absolute.status_code)
                 rejected_read = client.get("/api/transcripts/read", params={"file_path": str(outside_transcript_path)})
                 self.assertEqual(400, rejected_read.status_code)
-                rejected_non_txt = client.get("/api/transcripts/read", params={"file_path": str(non_txt_transcript_path)})
+                rejected_non_txt = client.get("/api/transcripts/read", params={"file_path": non_txt_transcript_path.name})
                 self.assertEqual(400, rejected_non_txt.status_code)
+                rejected_traversal = client.get("/api/transcripts/read", params={"file_path": "../outside.txt"})
+                self.assertEqual(400, rejected_traversal.status_code)
 
     def test_runtime_switch_endpoints_reject_inactive_tracks(self) -> None:
         with TestClient(main_module.app) as client:

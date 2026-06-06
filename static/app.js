@@ -824,13 +824,19 @@ async function addLocalFilesToQueue(files, input, pickerText, multiple = false) 
   }
 }
 
+function transcriptFileName(value) {
+  const text = String(value || "");
+  return text.split(/[\\/]/).filter(Boolean).pop() || text;
+}
+
 async function loadTranscript(filePath, announce = false) {
+  const transcriptName = transcriptFileName(filePath);
   try {
-    const result = await requestJson(`/api/transcripts/read?file_path=${encodeURIComponent(filePath)}`);
+    const result = await requestJson(`/api/transcripts/read?file_path=${encodeURIComponent(transcriptName)}`);
     transcriptText.value = result.text || "";
-    lastLoadedQueueTranscriptPath = result.file_path;
+    lastLoadedQueueTranscriptPath = filePath;
     if (announce) {
-      setOutput(transcribeOutput, t("transcriptLoaded", { name: result.file_path }), "success");
+      setOutput(transcribeOutput, t("transcriptLoaded", { name: transcriptName }), "success");
     }
   } catch (error) {
     setOutput(transcribeOutput, error.message, "error");
@@ -894,7 +900,7 @@ function renderFileList(target, files, emptyMessage, clickableTranscripts = fals
     if (name instanceof HTMLButtonElement) {
       name.type = "button";
       name.className = "file-link";
-      name.addEventListener("click", () => loadTranscript(file.path, true));
+      name.addEventListener("click", () => loadTranscript(file.name, true));
     }
     meta.textContent = `${formatDateTime(file.modified)} · ${file.size_mb} MB`;
     item.title = file.path;

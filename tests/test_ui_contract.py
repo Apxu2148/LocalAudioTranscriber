@@ -39,6 +39,9 @@ class UiContractTests(unittest.TestCase):
         self.assertIn('"/api/queue/add-urls"', app_js)
         self.assertIn('"/api/queue/start"', app_js)
         self.assertIn("latestTechnicalItem.technical_details", app_js)
+        self.assertIn("/api/transcripts/read", app_js)
+        self.assertIn("loadTranscript(file.name, true)", app_js)
+        self.assertIn('transcriptText.value = result.text || "";', app_js)
         self.assertNotIn('"/api/transcribe"', app_js)
         self.assertNotIn('"/api/transcribe/file"', app_js)
 
